@@ -65,7 +65,7 @@ Ortak 6 duygu: **angry, disgust, fear, happy, neutral, sad**.
 |-------|----------|----------------|----------|
 | baseline_cremad (MFCC+SVM) | 0.523 | 0.520 | 0.520 |
 | **cnn_cremad (log-mel CNN)** | **0.555** | **0.554** | **0.557** |
-| cnn_meld | 〔GPU'da çalıştırılacak〕 | | |
+| cnn_meld (log-mel CNN, denek-bağımsız) | 0.304 | 0.253 | 0.206 |
 | wav2vec2_cremad | 〔GPU'da çalıştırılacak〕 | | |
 
 > **Temel model vs CNN (CREMA-D, denek-bağımsız, şans = %16.7):** Klasik MFCC+SVM
@@ -81,29 +81,39 @@ CREMA-D temel model (solda) ve CNN (sağda) karışıklık matrisleri:
 ![CREMA-D CNN](figures/cnn_cremad_confusion.png)
 
 ### 5.2 Çapraz-veri-seti (cross-corpus) — GERÇEK SONUÇLAR
-> MFCC+LogReg temel modeli, denek-bağımsız. Görseller:
-> `outputs/baseline_cremad_crosscorpus/macro_f1_matrix.png` ve `summary.csv`.
+İki model için de denek-bağımsız çapraz-veri-seti matrisi (makro-F1):
 
-| Eğitim → Test | Doğruluk | Makro-F1 |
-|---------------|----------|----------|
-| CREMA-D → CREMA-D (içi) | 0.505 | **0.502** |
-| MELD → MELD (içi) | 0.258 | 0.188 |
-| **CREMA-D → MELD (çapraz)** | 0.076 | **0.083** |
-| **MELD → CREMA-D (çapraz)** | 0.226 | 0.191 |
+| Eğitim → Test | MFCC+LogReg | log-mel CNN |
+|---------------|-------------|-------------|
+| CREMA-D → CREMA-D (içi) | 0.502 | **0.557** |
+| MELD → MELD (içi) | 0.188 | **0.206** |
+| **CREMA-D → MELD (çapraz)** | 0.083 | 0.100 |
+| **MELD → CREMA-D (çapraz)** | 0.191 | 0.105 |
 
-**Bulgu (projenin temel katkısı):** Köşegen (veri-seti-içi) değerleri, köşegen-dışı
-(çapraz) değerlerden belirgin biçimde yüksektir. CREMA-D üzerinde öğrenilen model
-kendi test kümesinde makro-F1 **0.502** elde ederken, aynı model MELD üzerinde
-**0.083**'e çöker — yaklaşık **6 kat** düşüş. Bu, stüdyo→gerçek-ortam (domain shift)
-genellemesinin ne kadar zor olduğunun somut kanıtıdır ve önerideki "literatürde
-başarımı kolayca yükselmeyen zorlu problem" tezini doğrular.
+> Görseller: `figures/crosscorpus_macro_f1.png` (LogReg),
+> `figures/cnn_crosscorpus_macro_f1.png` (CNN); ham veriler
+> `outputs/*_crosscorpus/summary.csv`.
 
-![Çapraz-veri-seti makro-F1 matrisi (köşegen=içi, köşegen-dışı=çapraz)](figures/crosscorpus_macro_f1.png)
+**Bulgu 1 — alan kayması (projenin temel katkısı):** Her iki modelde de köşegen
+(veri-seti-içi) değerleri köşegen-dışı (çapraz) değerlerden belirgin biçimde
+yüksektir. CNN, CREMA-D'de makro-F1 **0.557** elde ederken aynı model MELD'de
+**0.100**'e çöker (~5.6 kat düşüş). Bu, stüdyo→gerçek-ortam genellemesinin somut,
+ölçülmüş kanıtıdır ve önerideki "literatürde kolayca yükselmeyen zorlu problem"
+tezini doğrular.
 
-MELD kendi içinde de zordur (makro-F1 0.188): gerçek-ortam ses koşulları + güçlü
-sınıf dengesizliği (neutral baskın). Bu nedenle doğruluk yerine **makro-F1**
+**Bulgu 2 — daha güçlü model alan kaymasını çözmez:** CNN, veri-seti-içi başarımı
+LogReg'e göre belirgin artırır (CREMA-D 0.502→0.557, MELD 0.188→0.206); ancak
+çapraz-veri-seti başarımı düşük kalır, hatta MELD→CREMA-D yönünde CNN (0.105)
+LogReg'den (0.191) **daha kötü** genelleştirir. Yani daha yüksek kapasite, alana
+özgü ipuçlarını daha çok ezberleyip çapraz-alan genellemesini iyileştirmeyebilir —
+bu, alan kaymasının kapasiteyle çözülmediğini gösteren öğretici bir sonuçtur.
+
+![CNN çapraz-veri-seti makro-F1 matrisi](figures/cnn_crosscorpus_macro_f1.png)
+
+**Bulgu 3 — metrik seçimi:** MELD kendi içinde de zordur (gerçek-ortam koşulları +
+neutral baskınlığı). Bu nedenle doğruluk yerine **makro-F1** ve **dengeli doğruluk**
 raporlanması kritiktir (her şeye "neutral" demek yüksek doğruluk ama düşük makro-F1
-verir — dengeli doğruluk ve makro-F1 bunu açığa çıkarır).
+verir).
 
 ## 6. Tartışma
 - Hangi sınıflar karışıyor? (örn. CREMA-D'de fear↔sad, MELD'de neutral baskınlığı)
