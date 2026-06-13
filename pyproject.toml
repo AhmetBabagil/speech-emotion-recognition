@@ -1,0 +1,36 @@
+[project]
+name = "ser"
+version = "0.1.0"
+description = "Speech Emotion Recognition with cross-corpus generalization (CREMA-D + MELD)"
+requires-python = ">=3.10"
+readme = "README.md"
+
+# NOTE: torch / torchaudio are intentionally NOT pinned here because the correct
+# wheel depends on the target machine (CPU for this dev box, cu128 for the RTX 5080).
+# Install them separately -- see README.md "Setup".
+dependencies = [
+    "numpy>=1.26",
+    "pandas>=2.0",
+    "scipy>=1.11",
+    "scikit-learn>=1.3",
+    "librosa>=0.10.1",
+    "soundfile>=0.12",
+    "pyyaml>=6.0",
+    "tqdm>=4.66",
+    "matplotlib>=3.7",
+    "seaborn>=0.13",
+]
+
+[project.optional-dependencies]
+# Heavy extras only needed for the transfer-learning (wav2vec2) model and TensorBoard.
+transfer = ["transformers>=4.40"]
+logging = ["tensorboard>=2.15"]
+# Needed for the default CREMA-D download (Hugging Face mirror).
+data = ["datasets>=2.18"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["ser*"]

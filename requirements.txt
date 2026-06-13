@@ -1,0 +1,23 @@
+# Core dependencies (CPU-friendly). For the GPU machine, install torch/torchaudio
+# from the cu128 index FIRST (see README), then `pip install -r requirements.txt`.
+#
+# torch / torchaudio are listed here for the CPU dev box. On the RTX 5080 machine,
+# install them instead with:
+#   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
+torch>=2.2
+torchaudio>=2.2
+
+numpy>=1.26
+pandas>=2.0
+scipy>=1.11
+scikit-learn>=1.3
+librosa>=0.10.1
+soundfile>=0.12
+pyyaml>=6.0
+tqdm>=4.66
+matplotlib>=3.7
+seaborn>=0.13
+
+# Optional (transfer learning + logging) -- uncomment if you want them:
+# transformers>=4.40
+# tensorboard>=2.15
