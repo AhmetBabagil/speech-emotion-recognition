@@ -71,23 +71,35 @@ Ortak 6 duygu: **angry, disgust, fear, happy, neutral, sad**.
 > baseline_cremad gerçek sonuç (denek-bağımsız bölme, yalnızca eğitim kümesinde
 > uyarlanmış StandardScaler+SVM, 6 sınıf, şans = %16.7): doğruluk %52.3,
 > makro-F1 0.520. Klasik MFCC+SVM için CREMA-D'de tipik aralıktadır.
-> Karışıklık matrisi: `outputs/baseline_cremad/test_confusion_matrix.png`.
 
-Karışıklık matrisleri: `outputs/<deney>/test_confusion_matrix.png`.
+![CREMA-D temel model karışıklık matrisi](figures/baseline_cremad_confusion.png)
 
-### 5.2 Çapraz-veri-seti (cross-corpus)
-> `outputs/<exp>_crosscorpus/macro_f1_matrix.png` ve `summary.csv`.
+Diğer karışıklık matrisleri: `outputs/<deney>/test_confusion_matrix.png`.
 
-| Eğitim → Test | Makro-F1 |
-|---------------|----------|
-| CREMA-D → CREMA-D | 〔...〕 |
-| MELD → MELD | 〔...〕 |
-| CREMA-D → MELD | 〔...〕 |
-| MELD → CREMA-D | 〔...〕 |
+### 5.2 Çapraz-veri-seti (cross-corpus) — GERÇEK SONUÇLAR
+> MFCC+LogReg temel modeli, denek-bağımsız. Görseller:
+> `outputs/baseline_cremad_crosscorpus/macro_f1_matrix.png` ve `summary.csv`.
 
-**Beklenti:** Köşegen (veri-seti-içi) değerleri, köşegen-dışı (çapraz) değerlerden
-belirgin biçimde yüksektir; bu düşüş, alan kayması probleminin somut kanıtıdır ve
-projenin temel bulgusudur.
+| Eğitim → Test | Doğruluk | Makro-F1 |
+|---------------|----------|----------|
+| CREMA-D → CREMA-D (içi) | 0.505 | **0.502** |
+| MELD → MELD (içi) | 0.258 | 0.188 |
+| **CREMA-D → MELD (çapraz)** | 0.076 | **0.083** |
+| **MELD → CREMA-D (çapraz)** | 0.226 | 0.191 |
+
+**Bulgu (projenin temel katkısı):** Köşegen (veri-seti-içi) değerleri, köşegen-dışı
+(çapraz) değerlerden belirgin biçimde yüksektir. CREMA-D üzerinde öğrenilen model
+kendi test kümesinde makro-F1 **0.502** elde ederken, aynı model MELD üzerinde
+**0.083**'e çöker — yaklaşık **6 kat** düşüş. Bu, stüdyo→gerçek-ortam (domain shift)
+genellemesinin ne kadar zor olduğunun somut kanıtıdır ve önerideki "literatürde
+başarımı kolayca yükselmeyen zorlu problem" tezini doğrular.
+
+![Çapraz-veri-seti makro-F1 matrisi (köşegen=içi, köşegen-dışı=çapraz)](figures/crosscorpus_macro_f1.png)
+
+MELD kendi içinde de zordur (makro-F1 0.188): gerçek-ortam ses koşulları + güçlü
+sınıf dengesizliği (neutral baskın). Bu nedenle doğruluk yerine **makro-F1**
+raporlanması kritiktir (her şeye "neutral" demek yüksek doğruluk ama düşük makro-F1
+verir — dengeli doğruluk ve makro-F1 bunu açığa çıkarır).
 
 ## 6. Tartışma
 - Hangi sınıflar karışıyor? (örn. CREMA-D'de fear↔sad, MELD'de neutral baskınlığı)
