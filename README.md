@@ -109,7 +109,7 @@ python scripts/train.py --config configs/baseline_cremad.yaml --baseline
 # CNN on log-mel (CREMA-D):
 python scripts/train.py --config configs/cnn_cremad.yaml
 
-# CNN on MELD (official folds):
+# CNN on MELD (speaker-independent):
 python scripts/train.py --config configs/cnn_meld.yaml
 
 # wav2vec2 transfer learning (GPU + transformers):

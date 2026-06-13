@@ -46,7 +46,9 @@ def main():
         train_baseline(base_cfg("baseline_cremad"), kind="svm")
         c = base_cfg("baseline_cremad")
         c.experiment = "baseline_meld"
-        c.data.train_corpora = ("meld",); c.data.eval_corpora = ("meld",); c.data.split = "meld_official"
+        # Speaker-independent on MELD too (same protocol as the CNN), so the
+        # baseline and CNN MELD numbers are directly comparable.
+        c.data.train_corpora = ("meld",); c.data.eval_corpora = ("meld",)
         log.info("### Baseline: MELD ###")
         train_baseline(c, kind="svm")
 
@@ -56,6 +58,10 @@ def main():
     train_torch(base_cfg("cnn_meld"))
 
     if not args.skip_cross:
+        log.info("### Baseline cross-corpus matrix ###")
+        bc = base_cfg("baseline_cremad")
+        bc.experiment = "baseline"
+        run_cross_corpus(bc, use_baseline=True, baseline_kind="logreg")
         log.info("### CNN cross-corpus matrix ###")
         cc = base_cfg("cnn_cremad")
         cc.experiment = "cnn"

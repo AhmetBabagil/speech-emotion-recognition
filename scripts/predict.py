@@ -71,7 +71,10 @@ def predict_baseline(model_path: str, audio: str) -> np.ndarray:
     import joblib
 
     pipe = joblib.load(model_path)
-    cfg = Config()  # default feature params (match baseline config)
+    # Use the exact feature params the model was trained with (saved alongside it),
+    # mirroring predict_torch. Fall back to defaults only if no config is present.
+    cfg_path = Path(model_path).parent / "config.yaml"
+    cfg = Config.from_yaml(cfg_path) if cfg_path.exists() else Config()
     wav = load_audio(audio, cfg.audio.sample_rate)
     feat = mfcc_statistics(wav, cfg.feature, cfg.audio.sample_rate)[None, :]
     if hasattr(pipe, "predict_proba"):

@@ -43,8 +43,12 @@ def _feature_hash(cfg, kind: str) -> str:
 
 
 def _cache_path(cache_dir: Path, corpus: str, audio_path: str, h: str) -> Path:
-    stem = Path(audio_path).stem
-    return cache_dir / corpus / f"{stem}__{h}.npy"
+    # Include the parent folder name in the key. MELD's dia{D}_utt{U} ids restart
+    # per split, so dia0_utt0 exists as DIFFERENT clips under audio/train, audio/dev
+    # and audio/test; keying on the stem alone would collide and load the wrong
+    # cached spectrogram. (CREMA-D filenames are globally unique; parent = AudioWAV.)
+    p = Path(audio_path)
+    return cache_dir / corpus / f"{p.parent.name}_{p.stem}__{h}.npy"
 
 
 def _load_cached(path: Path):
