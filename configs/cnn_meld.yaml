@@ -1,0 +1,51 @@
+experiment: cnn_meld
+output_dir: outputs
+
+audio:
+  sample_rate: 16000
+  clip_seconds: 4.0
+
+feature:
+  n_fft: 1024
+  hop_length: 256
+  win_length: 1024
+  n_mels: 64
+  fmin: 20
+  fmax: 8000
+  n_mfcc: 40
+  freq_mask: 8
+  time_mask: 16
+  augment: true
+
+model:
+  name: cnn
+  dropout: 0.3
+  cnn_channels: [32, 64, 128, 256]
+
+train:
+  epochs: 50
+  batch_size: 32
+  lr: 0.0003
+  weight_decay: 0.0001
+  class_weighting: balanced
+  label_smoothing: 0.05
+  early_stop_patience: 8
+  num_workers: 0
+  grad_clip: 5.0
+  seed: 42
+  monitor: macro_f1
+  amp: true
+
+data:
+  manifest: data/processed/manifest.csv
+  train_corpora: [meld]
+  eval_corpora: [meld]
+  # Speaker-independent within-MELD (consistent with the project's protocol).
+  # MELD's official folds are dialogue-based and NOT speaker-independent (the same
+  # TV characters recur across folds); set split: meld_official only if you want
+  # the literature-standard benchmark numbers instead.
+  split: speaker
+  val_fraction: 0.15
+  test_fraction: 0.15
+  cache_features: true
+  cache_dir: data/cache
