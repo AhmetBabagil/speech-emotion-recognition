@@ -126,54 +126,85 @@ def _classify_split(name: str) -> str | None:
     return None
 
 
+# MELD.Raw layout: the outer archive extracts to a "MELD.Raw" dir holding
+# dev_sent_emo.csv, test_sent_emo.csv and three nested tars. train.tar.gz also
+# contains train_sent_emo.csv; the per-split video dirs are train_splits/,
+# dev_splits_complete/ and output_repeated_splits_test/.
+_SPLIT_DIR_HINTS = {
+    "train": ("train_splits", "train"),
+    "dev": ("dev_splits_complete", "dev_splits", "dev"),
+    "test": ("output_repeated_splits_test", "test_splits", "test"),
+}
+
+
 def download_meld(dest: str = "data/raw/meld", keep_archive: bool = True) -> Path:
     """Download + extract MELD raw. Returns the directory containing the CSVs."""
     dest = ensure_dir(dest)
     archive = dest / "MELD.Raw.tar.gz"
 
-    csv_dir = _find_csv_dir(dest)
-    if csv_dir is None:
+    raw_root = _find_raw_root(dest)
+    if raw_root is None:
         # Download to completion (resumes a truncated file) BEFORE extracting.
         _ensure_complete_download(MELD_URL, archive)
         log.info("Extracting outer archive ...")
         _safe_extract(archive, dest)
-        csv_dir = _find_csv_dir(dest)
-    if csv_dir is None:
-        raise RuntimeError(f"Could not find *_sent_emo.csv under {dest} after extraction.")
+        raw_root = _find_raw_root(dest)
+        if not keep_archive and archive.exists():
+            archive.unlink()  # free ~11 GB before extracting the video tars
+    if raw_root is None:
+        raise RuntimeError(f"Could not find the MELD.Raw layout under {dest} after extraction.")
 
-    # Extract nested per-split video tarballs into video/<split>/
-    for nested in csv_dir.glob("*.tar.gz"):
+    # Extract nested per-split tarballs IN PLACE. train.tar.gz also yields
+    # train_sent_emo.csv. Each tar is removed after extraction to save disk.
+    for nested in sorted(raw_root.glob("*.tar.gz")):
         split = _classify_split(nested.name)
         if split is None:
             continue
-        target = dest / "video" / split
-        if any(target.rglob("*.mp4")):
-            continue
-        log.info("Extracting %s -> %s", nested.name, target)
-        _safe_extract(nested, target)
+        if _split_video_dir(raw_root, split) is not None:
+            nested.unlink(missing_ok=True)
+            continue  # already extracted
+        log.info("Extracting %s ...", nested.name)
+        _safe_extract(nested, raw_root)
+        nested.unlink(missing_ok=True)
 
-    if keep_archive is False and archive.exists():
-        archive.unlink()
-    log.info("MELD raw ready. CSV dir: %s", csv_dir)
-    return csv_dir
+    missing = [c for c in SPLIT_CSV.values() if not (raw_root / c).exists()]
+    if missing:
+        log.warning("MELD CSVs still missing after extraction: %s", missing)
+    log.info("MELD raw ready. CSV dir: %s", raw_root)
+    return raw_root
 
 
-def _find_csv_dir(root: Path) -> Path | None:
-    for csv in root.rglob("train_sent_emo.csv"):
-        return csv.parent
+def _find_raw_root(root: Path) -> Path | None:
+    """The dir holding the nested split tars or the per-split CSVs."""
+    for marker in ("train.tar.gz", "train_sent_emo.csv", "dev_sent_emo.csv"):
+        hits = list(root.rglob(marker))
+        if hits:
+            return hits[0].parent
+    return None
+
+
+def _split_video_dir(raw_root: Path, split: str) -> Path | None:
+    for hint in _SPLIT_DIR_HINTS[split]:
+        d = raw_root / hint
+        if d.is_dir() and any(d.rglob("*.mp4")):
+            return d
+    return None
+
+
+def _split_of_mp4(path: Path) -> str | None:
+    s = str(path).replace("\\", "/").lower()
+    if "train_splits" in s:
+        return "train"
+    if "dev_splits" in s:
+        return "dev"
+    if "output_repeated_splits_test" in s or "test_splits" in s:
+        return "test"
     return None
 
 
 # --------------------------------------------------------------------------- #
 # Audio extraction
 # --------------------------------------------------------------------------- #
-def _build_mp4_index(video_split_dir: Path) -> dict[str, Path]:
-    index: dict[str, Path] = {}
-    for mp4 in video_split_dir.rglob("*.mp4"):
-        index[mp4.stem] = mp4
-    return index
-
-
 def extract_meld_audio(
     csv_dir: str | Path,
     dest: str = "data/raw/meld",
@@ -190,36 +221,40 @@ def extract_meld_audio(
     dest = Path(dest)
     audio_root = ensure_dir(dest / "audio")
 
+    # Global index keyed by (split, stem): dia/utt ids repeat across splits, so the
+    # split must be part of the key to avoid collisions.
+    index: dict[tuple[str, str], Path] = {}
+    for mp4 in csv_dir.rglob("*.mp4"):
+        sp = _split_of_mp4(mp4)
+        if sp:
+            index[(sp, mp4.stem)] = mp4
+
     for split, csv_name in SPLIT_CSV.items():
         csv_path = csv_dir / csv_name
         if not csv_path.exists():
             log.warning("Missing %s -- skipping %s split", csv_name, split)
             continue
         df = pd.read_csv(csv_path)
-        video_dir = dest / "video" / split
-        mp4_index = _build_mp4_index(video_dir)
         out_dir = ensure_dir(audio_root / split)
 
-        rows = df.itertuples(index=False)
         done = 0
         n_ok = n_skip = n_fail = 0
-        for row in tqdm(rows, total=len(df), desc=f"MELD {split} audio"):
+        for row in tqdm(df.itertuples(index=False), total=len(df), desc=f"MELD {split} audio"):
             r = row._asdict()
             emotion = str(r["Emotion"]).strip().lower()
             if MELD_LABEL_TO_CANONICAL.get(emotion) is None:
                 n_skip += 1
                 continue  # surprise / unknown
             key = f"dia{int(r['Dialogue_ID'])}_utt{int(r['Utterance_ID'])}"
-            mp4 = mp4_index.get(key)
             out_wav = out_dir / f"{key}.wav"
             if out_wav.exists():
                 n_ok += 1
                 continue
+            mp4 = index.get((split, key))
             if mp4 is None:
                 n_fail += 1
                 continue
-            ok = _ffmpeg_to_wav(ffmpeg_bin, mp4, out_wav)
-            if ok:
+            if _ffmpeg_to_wav(ffmpeg_bin, mp4, out_wav):
                 n_ok += 1
             else:
                 n_fail += 1
