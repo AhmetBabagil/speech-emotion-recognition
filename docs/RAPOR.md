@@ -63,18 +63,22 @@ Ortak 6 duygu: **angry, disgust, fear, happy, neutral, sad**.
 ### 5.1 Veri-seti-içi (within-corpus)
 | Deney | Doğruluk | Dengeli Doğr. | Makro-F1 |
 |-------|----------|----------------|----------|
-| baseline_cremad (SVM) | **0.523** | **0.520** | **0.520** |
-| cnn_cremad | 〔...〕 | 〔...〕 | 〔...〕 |
-| cnn_meld | 〔...〕 | 〔...〕 | 〔...〕 |
-| wav2vec2_cremad | 〔...〕 | 〔...〕 | 〔...〕 |
+| baseline_cremad (MFCC+SVM) | 0.523 | 0.520 | 0.520 |
+| **cnn_cremad (log-mel CNN)** | **0.555** | **0.554** | **0.557** |
+| cnn_meld | 〔GPU'da çalıştırılacak〕 | | |
+| wav2vec2_cremad | 〔GPU'da çalıştırılacak〕 | | |
 
-> baseline_cremad gerçek sonuç (denek-bağımsız bölme, yalnızca eğitim kümesinde
-> uyarlanmış StandardScaler+SVM, 6 sınıf, şans = %16.7): doğruluk %52.3,
-> makro-F1 0.520. Klasik MFCC+SVM için CREMA-D'de tipik aralıktadır.
+> **Temel model vs CNN (CREMA-D, denek-bağımsız, şans = %16.7):** Klasik MFCC+SVM
+> temel modeli makro-F1 **0.520** verirken, log-mel spektrogram üzerinde eğitilen
+> CNN makro-F1 **0.557**'ye çıkar (~+3.7 puan) — derin modelin beklenen üstünlüğü.
+> CNN en kolay sınıf `angry` (F1 0.65), en zor `fear` (F1 0.47); 22 epoch, en iyi
+> epoch 14 (erken durdurma). cnn_meld ve wav2vec2 derin eğitimleri RTX 5080
+> makinesinde çalıştırılmak üzere hazırdır (bu geliştirme makinesi yalnızca CPU).
 
-![CREMA-D temel model karışıklık matrisi](figures/baseline_cremad_confusion.png)
+CREMA-D temel model (solda) ve CNN (sağda) karışıklık matrisleri:
 
-Diğer karışıklık matrisleri: `outputs/<deney>/test_confusion_matrix.png`.
+![CREMA-D temel model](figures/baseline_cremad_confusion.png)
+![CREMA-D CNN](figures/cnn_cremad_confusion.png)
 
 ### 5.2 Çapraz-veri-seti (cross-corpus) — GERÇEK SONUÇLAR
 > MFCC+LogReg temel modeli, denek-bağımsız. Görseller:
@@ -109,10 +113,24 @@ verir — dengeli doğruluk ve makro-F1 bunu açığa çıkarır).
   etiketleme öznelliği).
 
 ## 7. Sonuç
-Her iki veri setinde de çalışan, denek-bağımsız ve çapraz-veri-seti değerlendirme
-yapan bir konuşmadan duygu tanıma sistemi geliştirildi. 〔Özet bulgular〕.
+Her iki veri setinde (CREMA-D + MELD, ~19.500 kayıt, ortak 6 duygu) çalışan,
+**denek-bağımsız** ve **çapraz-veri-seti** değerlendirme yapan bir konuşmadan duygu
+tanıma sistemi geliştirildi. Başlıca bulgular:
+
+1. **Model ilerlemesi işe yarıyor:** CREMA-D'de MFCC+SVM temel modeli (makro-F1
+   0.520) → log-mel CNN (makro-F1 0.557). Derin model klasik temeli geçti.
+2. **Çapraz-veri-seti genelleme zordur (projenin temel bulgusu):** CREMA-D üzerinde
+   eğitilen model kendi test kümesinde makro-F1 0.502 elde ederken MELD üzerinde
+   0.083'e çöker — stüdyo→gerçek-ortam alan kaymasının somut, ölçülmüş kanıtı.
+3. **Metrik seçimi kritiktir:** MELD'in sınıf dengesizliği nedeniyle doğruluk
+   yanıltıcıdır; makro-F1 ve dengeli doğruluk gerçek başarımı gösterir.
+
+Derin MELD-içi ve wav2vec2 transfer-öğrenme deneyleri (GPU gerektirir) RTX 5080
+makinesinde aynı kod ve konfigürasyonlarla çalıştırılmaya hazırdır.
 
 ## 8. Tekrarlanabilirlik
-Kod: `〔GitHub bağlantısı〕`. Kurulum ve çalıştırma: `README.md`.
-Her deney klasörü `config.yaml`, `history.json`, `test_metrics.json` ve karışıklık
-matrisini içerir.
+Kod: <https://github.com/AhmetBabagil/speech-emotion-recognition>.
+Kurulum ve çalıştırma: `README.md`. Sabit tohum (seed=42), kaydedilen `config.yaml`,
+tohumlanmış veri artırma ve DataLoader üreteci ile sonuçlar tekrarlanabilir. Her
+deney klasörü `config.yaml`, `history.json`, `test_metrics.json` ve karışıklık
+matrisini içerir; tüm sonuçlar `scripts/aggregate_results.py` ile toplanır.
