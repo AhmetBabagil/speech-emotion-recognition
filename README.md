@@ -129,6 +129,18 @@ additionally writes `outputs/<exp>_crosscorpus/summary.csv` and
 CLI overrides (no need to edit YAML): `--epochs`, `--batch-size`, `--model`,
 `--experiment`, `--train-corpora`, `--eval-corpora`, `--split`.
 
+## 4. Predict on a single clip (demo)
+
+```bash
+# With a trained CNN/wav2vec2 checkpoint:
+python scripts/predict.py --checkpoint outputs/cnn_cremad/best.pt --audio some.wav
+
+# With the classical baseline:
+python scripts/predict.py --baseline outputs/baseline_cremad/baseline.joblib --audio some.wav
+```
+Prints the predicted emotion and the full probability distribution over the six
+classes — the proposal's input→output in action (a WAV in, an emotion out).
+
 ## Quick sanity check (no real data needed)
 
 ```bash
