@@ -19,7 +19,7 @@ from ser.constants import (
     CANONICAL_EMOTIONS, NUM_CLASSES, EMOTION_TO_IDX,
     cremad_code_to_idx, meld_label_to_idx, CORPUS_CREMAD, CORPUS_MELD,
 )
-from ser.features.io import load_audio, fix_length
+from ser.features.io import fix_length
 from ser.features.melspec import log_mel_spectrogram, fixed_num_frames, fix_frames
 from ser.features.mfcc import mfcc_statistics
 from ser.data.splits import prepare_splits
@@ -116,7 +116,7 @@ def test_cross_corpus_split(tmp_path):
 
 
 def test_dataset_and_cnn_forward(tmp_path):
-    torch = pytest.importorskip("torch")
+    pytest.importorskip("torch")
     from ser.data.dataset import SERDataset
     from ser.models import build_model
 
@@ -144,3 +144,27 @@ def test_augmentation_is_reproducible(tmp_path):
     x1, _ = ds1[5]
     x2, _ = ds2[5]
     assert torch.allclose(x1, x2)
+
+
+def test_class_weights_balanced():
+    pytest.importorskip("torch")
+    from ser.data.dataset import class_weights
+    # class 0 is over-represented -> should get a lower weight than the rare classes
+    df = pd.DataFrame({"label_idx": [0, 0, 0, 0, 1, 2, 3, 4, 5]})
+    w = class_weights(df, "balanced")
+    assert w.shape[0] == NUM_CLASSES
+    assert w[0] < w[1]
+
+
+def test_cremad_manifest_parsing(tmp_path):
+    import soundfile as sf
+    from ser.data.build_manifest import cremad_rows
+
+    audiowav = tmp_path / "AudioWAV"
+    audiowav.mkdir()
+    for n in ["1001_DFA_ANG_XX.wav", "1002_IEO_HAP_HI.wav", "1091_TIE_SAD_LO.wav"]:
+        sf.write(audiowav / n, _tone(), 16000)
+    rows = cremad_rows(audiowav)
+    assert len(rows) == 3
+    assert {r["emotion"] for r in rows} == {"angry", "happy", "sad"}
+    assert {r["speaker"] for r in rows} == {"1001", "1002", "1091"}  # actor id preserved

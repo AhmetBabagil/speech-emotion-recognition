@@ -101,10 +101,8 @@ def train_torch(cfg: Config, device=None) -> dict:
     cfg.save(out_dir / "config.yaml")
 
     df = pd.read_csv(cfg.data.manifest)
+    # prepare_splits() already guarantees no fold is empty (raises with a clear message).
     train_df, val_df, test_df = prepare_splits(df, cfg.data, cfg.train.seed)
-    for name, part in (("Training", train_df), ("Validation", val_df), ("Test", test_df)):
-        if len(part) == 0:
-            raise ValueError(f"{name} set is empty -- check split fractions / corpora.")
 
     train_loader, val_loader, test_loader = _make_loaders(cfg, train_df, val_df, test_df, device)
 
@@ -179,10 +177,8 @@ def train_baseline(cfg: Config, kind: str = "svm") -> dict:
     cfg.save(out_dir / "config.yaml")
 
     df = pd.read_csv(cfg.data.manifest)
+    # prepare_splits() already guarantees no fold is empty.
     train_df, val_df, test_df = prepare_splits(df, cfg.data, cfg.train.seed)
-    for name, part in (("Training", train_df), ("Test", test_df)):
-        if len(part) == 0:
-            raise ValueError(f"{name} set is empty -- check split fractions / corpora.")
     # Fit on the TRAIN split only (no val), so the baseline and the deep models
     # learn from the same data and the comparison is fair + leak-free. The
     # StandardScaler inside the pipeline is therefore fit on train statistics only.
