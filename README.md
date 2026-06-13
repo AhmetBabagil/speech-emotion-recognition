@@ -162,3 +162,18 @@ python scripts/smoke_test.py        # synthesizes tiny audio, runs baseline + CN
 
 The proposal targets an RTX 5080 (16 GB). Deep training (CNN, wav2vec2) should run
 there with `amp: true`. The classical baseline and the smoke test run fine on CPU.
+
+## Data sources & citations
+
+- **CREMA-D** — Cao et al., *CREMA-D: Crowd-sourced Emotional Multimodal Actors
+  Dataset*, IEEE Trans. Affective Computing, 2014.
+  Original: <https://github.com/CheyneyComputerScience/CREMA-D>.
+  Audio is pulled from the Hugging Face mirror `AbstractTTS/CREMA-D` (original
+  filenames preserved).
+- **MELD** — Poria et al., *MELD: A Multimodal Multi-Party Dataset for Emotion
+  Recognition in Conversations*, ACL 2019.
+  Source: <https://github.com/declare-lab/MELD>
+  (raw: `http://web.eecs.umich.edu/~mihalcea/downloads/MELD.Raw.tar.gz`).
+
+Each dataset is distributed under its own license/terms; this repository contains
+code only (datasets are downloaded by the scripts and are git-ignored).
