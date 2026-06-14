@@ -65,6 +65,10 @@ If `torch.cuda.is_available()` is `False` on the 5080, you have a CPU/old-CUDA
 wheel — reinstall from the **cu128** index above (nightly `…/nightly/cu128` is the
 fallback).
 
+> **Running wav2vec2 on the GPU?** See **[`docs/GPU_WAV2VEC2.md`](docs/GPU_WAV2VEC2.md)**
+> for a detailed step-by-step guide (cu128 verification, VRAM tuning, the exact
+> commands, and troubleshooting). It's the one model that needs CUDA.
+
 ### B) CPU dev box (e.g. this machine — no NVIDIA GPU)
 ```bash
 pip install torch torchaudio   # CPU build from PyPI
@@ -112,7 +116,7 @@ python scripts/train.py --config configs/cnn_cremad.yaml
 # CNN on MELD (speaker-independent):
 python scripts/train.py --config configs/cnn_meld.yaml
 
-# wav2vec2 transfer learning (GPU + transformers):
+# wav2vec2 transfer learning (GPU + transformers; see docs/GPU_WAV2VEC2.md):
 python scripts/train.py --config configs/wav2vec2_cremad.yaml
 
 # Full within + cross-corpus matrix (the proposal's headline result):
