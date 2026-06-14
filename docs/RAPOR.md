@@ -138,9 +138,18 @@ tanıma sistemi geliştirildi. Başlıca bulgular:
 Derin MELD-içi ve wav2vec2 transfer-öğrenme deneyleri (GPU gerektirir) RTX 5080
 makinesinde aynı kod ve konfigürasyonlarla çalıştırılmaya hazırdır.
 
-## 8. Tekrarlanabilirlik
+## 8. Tekrarlanabilirlik ve doğrulama
 Kod: <https://github.com/AhmetBabagil/speech-emotion-recognition>.
 Kurulum ve çalıştırma: `README.md`. Sabit tohum (seed=42), kaydedilen `config.yaml`,
 tohumlanmış veri artırma ve DataLoader üreteci ile sonuçlar tekrarlanabilir. Her
 deney klasörü `config.yaml`, `history.json`, `test_metrics.json` ve karışıklık
 matrisini içerir; tüm sonuçlar `scripts/aggregate_results.py` ile toplanır.
+
+**Doğrulama notu:** Kod, çok-ajanlı düşmanca denetimden geçirildi. Bu denetimlerde,
+öznitelik önbelleğinin (cache) yalnızca dosya adıyla anahtarlanması nedeniyle MELD'in
+bölme başına yeniden başlayan `dia{D}_utt{U}` kimliklerinin çakışabileceği bir hata
+bulundu ve düzeltildi (anahtar artık bölme klasörünü içerir). Tüm MELD/çapraz-veri-seti
+deneyleri düzeltilmiş önbellekle yeniden koşuldu; sonuçlar **değişmedi** (MELD başarımı
+zaten taban seviyesine yakın olduğundan öznitelik gürültüsü makro-F1'i etkilemedi),
+böylece raporlanan sayılar doğrulanmış oldu. (CREMA-D dosya adları benzersiz olduğundan
+hiç etkilenmemişti.)
