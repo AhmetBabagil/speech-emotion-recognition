@@ -66,7 +66,7 @@ Ortak 6 duygu: **angry, disgust, fear, happy, neutral, sad**.
 | baseline_cremad (MFCC+SVM) | 0.523 | 0.520 | 0.520 |
 | **cnn_cremad (log-mel CNN)** | **0.555** | **0.554** | **0.557** |
 | cnn_meld (log-mel CNN, denek-bağımsız) | 0.304 | 0.253 | 0.206 |
-| wav2vec2_cremad | 〔GPU'da çalıştırılacak〕 | | |
+| wav2vec2_cremad | 〔GPU'da çalıştırılacak — bkz. `docs/GPU_WAV2VEC2.md`〕 | | |
 
 > **Temel model vs CNN (CREMA-D, denek-bağımsız, şans = %16.7):** Klasik MFCC+SVM
 > temel modeli makro-F1 **0.520** verirken, log-mel spektrogram üzerinde eğitilen
