@@ -20,28 +20,41 @@ from pathlib import Path
 import markdown
 
 CSS = """
-@page { size: A4; margin: 18mm 16mm; }
+@page { size: A4; margin: 20mm 18mm 18mm 18mm; }
 * { box-sizing: border-box; }
-body { font-family: "Segoe UI", "Calibri", Arial, sans-serif; font-size: 10.5pt;
-       line-height: 1.45; color: #1a1a1a; max-width: 100%; }
-h1 { font-size: 19pt; border-bottom: 2px solid #2a4d69; padding-bottom: 4px; color: #2a4d69; }
-h2 { font-size: 14pt; color: #2a4d69; border-bottom: 1px solid #cdd9e5; padding-bottom: 2px;
-     margin-top: 18px; }
-h3 { font-size: 12pt; color: #34495e; margin-top: 14px; }
-table { border-collapse: collapse; margin: 10px 0; width: auto; font-size: 9.8pt; }
-th, td { border: 1px solid #b8c4d0; padding: 4px 9px; text-align: left; }
-th { background: #eaf0f6; font-weight: 600; }
-tr:nth-child(even) td { background: #f6f9fc; }
-code { background: #f0f2f4; padding: 1px 4px; border-radius: 3px; font-size: 9.2pt;
-       font-family: "Consolas", monospace; }
-pre { background: #f6f8fa; padding: 8px 10px; border-radius: 5px; overflow-x: auto;
-      border: 1px solid #e1e4e8; font-size: 9pt; }
+body { font-family: "Segoe UI", "Calibri", "Helvetica Neue", Arial, sans-serif;
+       font-size: 10.6pt; line-height: 1.5; color: #20262e; max-width: 100%;
+       text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }
+p { margin: 6px 0 9px; text-align: justify; }
+h1 { font-size: 21pt; color: #1f3b57; margin: 0 0 4px; letter-spacing: -0.2px;
+     border-bottom: 3px solid #1f3b57; padding-bottom: 8px; }
+h2 { font-size: 14.5pt; color: #1f3b57; margin: 22px 0 8px; padding: 4px 0 4px 10px;
+     border-left: 4px solid #2f74c0; background: linear-gradient(90deg,#eef4fb,transparent); }
+h3 { font-size: 11.8pt; color: #2c4a66; margin: 15px 0 6px; }
+hr { border: none; border-top: 1px solid #dfe6ee; margin: 16px 0; }
+ul { margin: 6px 0 10px; padding-left: 20px; }
+li { margin: 3px 0; }
+table { border-collapse: collapse; margin: 12px 0; width: 100%; font-size: 9.7pt;
+        box-shadow: 0 1px 2px rgba(31,59,87,0.06); }
+th, td { border: 1px solid #c9d6e3; padding: 6px 10px; text-align: left; }
+th { background: #1f3b57; color: #fff; font-weight: 600; border-color: #1f3b57; }
+tr:nth-child(even) td { background: #f3f7fb; }
+td:nth-child(n+2), th:nth-child(n+2) { text-align: center; }
+code { background: #eef1f4; padding: 1px 5px; border-radius: 3px; font-size: 9.1pt;
+       font-family: "Consolas", "Courier New", monospace; color: #344; }
+pre { background: #f6f8fa; padding: 9px 11px; border-radius: 6px; overflow-x: auto;
+      border: 1px solid #e1e4e8; font-size: 8.9pt; }
 pre code { background: none; padding: 0; }
-blockquote { border-left: 3px solid #7a9cc6; margin: 8px 0; padding: 2px 12px;
-             color: #44515e; background: #f7fafd; }
-img { max-width: 88%; display: block; margin: 8px auto; border: 1px solid #dde3ea; }
+blockquote { border-left: 4px solid #8fb3d9; margin: 10px 0; padding: 6px 14px;
+             color: #3c4a59; background: #f5f9fd; border-radius: 0 4px 4px 0; }
+img { max-width: 62%; display: block; margin: 14px auto 4px;
+      border: 1px solid #d4dde7; border-radius: 4px; box-shadow: 0 2px 6px rgba(31,59,87,0.12); }
+/* caption = the paragraph right after an image paragraph */
+p:has(> img) + p { text-align: center; font-size: 9pt; color: #5b6b7a; margin-top: 0; }
+p:has(> img) + p em { font-style: italic; }
 a { color: #1a5fb4; text-decoration: none; }
-strong { color: #1a1a1a; }
+strong { color: #16202b; }
+h2 + p, h3 + p { margin-top: 4px; }
 """
 
 HTML_TEMPLATE = """<!DOCTYPE html>
