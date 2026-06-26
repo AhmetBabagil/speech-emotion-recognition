@@ -25,9 +25,11 @@ vektör boyutu), **P** (PCA çıktı boyutu), **K** (komşu sayısı).
 Kod + git geçmişi: <https://github.com/AhmetBabagil/speech-emotion-recognition>
 (Link izin istemeden erişilebilir olacak şekilde public yapılacaktır.)
 
-> **Veri seti boyutu notu:** MELD ham verisi (~11 GB) Google Drive'a yüklenemeyecek
-> kadar büyük olabilir. Bu durumda veri seti **USB ile ertesi gün** teslim
-> edilecektir. (CREMA-D ~0.6 GB; MELD'ten çıkarılan 16 kHz ses ~ birkaç GB.)
+> **Veri seti notu:** Projede kullanılan ses verisi (CREMA-D 16 kHz WAV ~0.6 GB +
+> MELD'ten çıkarılan 16 kHz WAV ~1.3 GB, toplam ~1.9 GB) Google Drive'a yüklenmiştir
+> (yukarıdaki Drive bağlantısı). MELD'in ham video arşivi (~11 GB) yerine, projede
+> doğrudan kullanılan çıkarılmış ses konulmuştur; ham veri istenirse
+> `scripts/download_data.py` ile birebir yeniden indirilebilir.
 
 **Çalıştırılacak Dosyalar ve Ne Yaptıkları:**
 
