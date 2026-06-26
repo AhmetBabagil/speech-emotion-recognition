@@ -9,6 +9,11 @@
 
 # Intermediate report HTML (the PDF is the deliverable, kept in git)
 docs/RAPOR.html
+odev1/RAPOR.html
+
+# Ödev 1 large/regenerable artifacts (keep code, report, figures)
+odev1/cache/
+odev1/outputs/
 *.ckpt
 *.pt
 *.pth
