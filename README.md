@@ -26,6 +26,9 @@ Two corpora are unified onto the **common six emotions**
   1. `baseline` — MFCC stats → StandardScaler → SVM/LogReg/RandomForest (sklearn).
   2. `cnn` — 2-D CNN over log-mel spectrograms (PyTorch).
   3. `wav2vec2` — transfer learning, fine-tuning a pretrained `wav2vec2-base` head.
+- **Semi-supervised / unsupervised** (`ser/semisupervised.py`) — K-Means feature
+  clustering (ARI/NMI/Hungarian), a reduced-label learning curve, and self-training
+  pseudo-labeling.
 - **Protocols** — **speaker-independent** within-corpus splits, MELD official
   folds, and the full **cross-corpus matrix** (train A → test B).
 - **Metrics** — accuracy, balanced accuracy, macro-F1, weighted-F1, per-class
@@ -64,6 +67,10 @@ pip install -e .[transfer]  # adds transformers, for the wav2vec2 model
 If `torch.cuda.is_available()` is `False` on the 5080, you have a CPU/old-CUDA
 wheel — reinstall from the **cu128** index above (nightly `…/nightly/cu128` is the
 fallback).
+
+> **Running wav2vec2 on the GPU?** See **[`docs/GPU_WAV2VEC2.md`](docs/GPU_WAV2VEC2.md)**
+> for a detailed step-by-step guide (cu128 verification, VRAM tuning, the exact
+> commands, and troubleshooting). It's the one model that needs CUDA.
 
 ### B) CPU dev box (e.g. this machine — no NVIDIA GPU)
 ```bash
@@ -109,14 +116,18 @@ python scripts/train.py --config configs/baseline_cremad.yaml --baseline
 # CNN on log-mel (CREMA-D):
 python scripts/train.py --config configs/cnn_cremad.yaml
 
-# CNN on MELD (official folds):
+# CNN on MELD (speaker-independent):
 python scripts/train.py --config configs/cnn_meld.yaml
 
-# wav2vec2 transfer learning (GPU + transformers):
+# wav2vec2 transfer learning (GPU + transformers; see docs/GPU_WAV2VEC2.md):
 python scripts/train.py --config configs/wav2vec2_cremad.yaml
 
 # Full within + cross-corpus matrix (the proposal's headline result):
 python scripts/train.py --config configs/cnn_cremad.yaml --cross-corpus
+
+# Semi-supervised / unsupervised analysis (K-Means clustering + reduced-label
+# learning curve + self-training pseudo-labeling) on CREMA-D:
+python scripts/semisupervised.py --config configs/baseline_cremad.yaml
 ```
 
 Outputs land in `outputs/<experiment>/`: `config.yaml`, `test_metrics.json`,
@@ -128,6 +139,18 @@ additionally writes `outputs/<exp>_crosscorpus/summary.csv` and
 
 CLI overrides (no need to edit YAML): `--epochs`, `--batch-size`, `--model`,
 `--experiment`, `--train-corpora`, `--eval-corpora`, `--split`.
+
+## 4. Predict on a single clip (demo)
+
+```bash
+# With a trained CNN/wav2vec2 checkpoint:
+python scripts/predict.py --checkpoint outputs/cnn_cremad/best.pt --audio some.wav
+
+# With the classical baseline:
+python scripts/predict.py --baseline outputs/baseline_cremad/baseline.joblib --audio some.wav
+```
+Prints the predicted emotion and the full probability distribution over the six
+classes — the proposal's input→output in action (a WAV in, an emotion out).
 
 ## Quick sanity check (no real data needed)
 
@@ -150,3 +173,18 @@ python scripts/smoke_test.py        # synthesizes tiny audio, runs baseline + CN
 
 The proposal targets an RTX 5080 (16 GB). Deep training (CNN, wav2vec2) should run
 there with `amp: true`. The classical baseline and the smoke test run fine on CPU.
+
+## Data sources & citations
+
+- **CREMA-D** — Cao et al., *CREMA-D: Crowd-sourced Emotional Multimodal Actors
+  Dataset*, IEEE Trans. Affective Computing, 2014.
+  Original: <https://github.com/CheyneyComputerScience/CREMA-D>.
+  Audio is pulled from the Hugging Face mirror `AbstractTTS/CREMA-D` (original
+  filenames preserved).
+- **MELD** — Poria et al., *MELD: A Multimodal Multi-Party Dataset for Emotion
+  Recognition in Conversations*, ACL 2019.
+  Source: <https://github.com/declare-lab/MELD>
+  (raw: `http://web.eecs.umich.edu/~mihalcea/downloads/MELD.Raw.tar.gz`).
+
+Each dataset is distributed under its own license/terms; this repository contains
+code only (datasets are downloaded by the scripts and are git-ignored).

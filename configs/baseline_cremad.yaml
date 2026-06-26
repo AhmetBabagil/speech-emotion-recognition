@@ -1,0 +1,32 @@
+experiment: baseline_cremad
+output_dir: outputs
+
+audio:
+  sample_rate: 16000
+  clip_seconds: 4.0
+
+feature:
+  n_fft: 1024
+  hop_length: 256
+  win_length: 1024
+  n_mels: 64
+  n_mfcc: 40
+  augment: false
+
+# model section is ignored by the sklearn baseline (run with --baseline)
+model:
+  name: cnn
+
+train:
+  class_weighting: balanced
+  seed: 42
+
+data:
+  manifest: data/processed/manifest.csv
+  train_corpora: [cremad]
+  eval_corpora: [cremad]
+  split: speaker
+  val_fraction: 0.15
+  test_fraction: 0.15
+  cache_features: true
+  cache_dir: data/cache

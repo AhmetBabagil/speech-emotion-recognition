@@ -1,0 +1,43 @@
+# Tiny config for a fast CPU end-to-end sanity check (not for real results).
+experiment: smoke
+output_dir: outputs
+
+audio:
+  sample_rate: 16000
+  clip_seconds: 3.0
+
+feature:
+  n_fft: 512
+  hop_length: 256
+  win_length: 512
+  n_mels: 40
+  n_mfcc: 20
+  freq_mask: 4
+  time_mask: 8
+  augment: true
+
+model:
+  name: cnn
+  dropout: 0.3
+  cnn_channels: [16, 32, 64]
+
+train:
+  epochs: 2
+  batch_size: 8
+  lr: 0.0005
+  class_weighting: balanced
+  early_stop_patience: 5
+  num_workers: 0
+  seed: 42
+  monitor: macro_f1
+  amp: false
+
+data:
+  manifest: data/processed/manifest.csv
+  train_corpora: [cremad]
+  eval_corpora: [cremad]
+  split: speaker
+  val_fraction: 0.2
+  test_fraction: 0.2
+  cache_features: true
+  cache_dir: data/cache

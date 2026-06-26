@@ -1,0 +1,47 @@
+experiment: wav2vec2_cremad
+output_dir: outputs
+
+# Transfer learning needs `transformers` (pip install -e .[transfer]) and is
+# really meant for the GPU (RTX 5080) machine.
+
+audio:
+  sample_rate: 16000
+  clip_seconds: 4.0
+
+feature:
+  # waveform model -> spectrogram params unused, kept for the dataset interface
+  n_fft: 1024
+  hop_length: 256
+  n_mels: 64
+  augment: false
+
+model:
+  name: wav2vec2
+  dropout: 0.3
+  pretrained_name: facebook/wav2vec2-base
+  freeze_feature_encoder: true
+
+train:
+  epochs: 20
+  batch_size: 8
+  lr: 0.0001
+  weight_decay: 0.0001
+  class_weighting: balanced
+  label_smoothing: 0.05
+  early_stop_patience: 5
+  num_workers: 4
+  grad_clip: 5.0
+  seed: 42
+  monitor: macro_f1
+  amp: true
+
+data:
+  manifest: data/processed/manifest.csv
+  train_corpora: [cremad]
+  eval_corpora: [cremad]
+  split: speaker
+  val_fraction: 0.15
+  test_fraction: 0.15
+  # waveform mode is not cached (cache only applies to log-mel)
+  cache_features: false
+  cache_dir: data/cache
