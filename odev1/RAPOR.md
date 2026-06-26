@@ -21,9 +21,10 @@ vektör boyutu), **P** (PCA çıktı boyutu), **K** (komşu sayısı).
 - MELD: <https://github.com/declare-lab/MELD>
   (ham veri: `http://web.eecs.umich.edu/~mihalcea/downloads/MELD.Raw.tar.gz`)
 
-**Proje Çalışmasının Yüklendiği Google Drive Bağlantısı:** 〔YÜKLENECEK — link buraya〕
-Kod + git geçmişi: <https://github.com/AhmetBabagil/speech-emotion-recognition>
-(Link izin istemeden erişilebilir olacak şekilde public yapılacaktır.)
+**Proje Çalışmasının Yüklendiği Google Drive Bağlantısı:**
+https://drive.google.com/drive/folders/1lgD8EJ9Le4Rb0FVHHm5R40LvCyY_Earc?usp=sharing
+(Kod + git geçmişi + kullanılan ses verisi + rapor PDF içerir.)
+Kod ayrıca herkese açık GitHub'da: <https://github.com/AhmetBabagil/speech-emotion-recognition>
 
 > **Veri seti notu:** Projede kullanılan ses verisi (CREMA-D 16 kHz WAV ~0.6 GB +
 > MELD'ten çıkarılan 16 kHz WAV ~1.3 GB, toplam ~1.9 GB) Google Drive'a yüklenmiştir
