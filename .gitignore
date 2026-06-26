@@ -14,6 +14,9 @@ odev1/RAPOR.html
 # Ödev 1 large/regenerable artifacts (keep code, report, figures)
 odev1/cache/
 odev1/outputs/
+
+# Submission package (zips/bundles for Drive upload — derived artifacts)
+submission/
 *.ckpt
 *.pt
 *.pth
