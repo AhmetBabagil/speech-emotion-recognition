@@ -170,9 +170,19 @@ Hiperparametrelerin geçerleme başarımına etkisi (yukarıdaki tablolardan):
 | CREMA-D | 2304 | 256 | 15 | **0.480** | 0.480 | **0.466** |
 | MELD | 768 | 128 | 5 | 0.205 | 0.206 | 0.194 |
 
-**Genel en iyi sonuç — karmaşıklık matrisi:** CREMA-D (makro-F1 0.466).
-`odev1/figures/overall_best_confusion.png` (ayrıca her veri setinin kendi matrisi
-`odev1/figures/<veri seti>_confusion.png`).
+**Genel en iyi sonuç — karmaşıklık matrisi:** CREMA-D (makro-F1 0.466). Aşağıda
+satır-normalize karmaşıklık matrisleri verilmiştir (her satır gerçek sınıfı, sütun
+tahmini gösterir; köşegen = doğru tahmin oranı).
+
+![CREMA-D — en iyi KNN test karmaşıklık matrisi (genel en iyi)](figures/cremad_confusion.png)
+
+*Şekil 1. CREMA-D (genel en iyi). Köşegen değerleri görece yüksek; `angry` ve `neutral`
+en ayırt edilebilir, `fear`/`sad` arası karışma daha fazla.*
+
+![MELD — en iyi KNN test karmaşıklık matrisi](figures/meld_confusion.png)
+
+*Şekil 2. MELD. Tahminler büyük ölçüde baskın `neutral` sınıfına kayıyor; bu yüzden
+doğruluk göreli yüksek görünse de makro-F1 düşük kalıyor (dengesizlik etkisi).*
 
 ---
 
