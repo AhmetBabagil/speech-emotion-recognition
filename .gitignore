@@ -6,6 +6,9 @@
 
 # Workflow / scratch artifacts
 .audit_workflow.mjs
+
+# Intermediate report HTML (the PDF is the deliverable, kept in git)
+docs/RAPOR.html
 *.ckpt
 *.pt
 *.pth
