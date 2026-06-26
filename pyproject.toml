@@ -27,6 +27,8 @@ transfer = ["transformers>=4.40"]
 logging = ["tensorboard>=2.15"]
 # Needed for the default CREMA-D download (Hugging Face mirror).
 data = ["datasets>=2.18"]
+# Needed to render the report to PDF (scripts/build_pdf.py); also needs Chrome/Edge.
+report = ["markdown>=3.5"]
 
 [build-system]
 requires = ["setuptools>=68"]

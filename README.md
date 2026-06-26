@@ -26,6 +26,9 @@ Two corpora are unified onto the **common six emotions**
   1. `baseline` — MFCC stats → StandardScaler → SVM/LogReg/RandomForest (sklearn).
   2. `cnn` — 2-D CNN over log-mel spectrograms (PyTorch).
   3. `wav2vec2` — transfer learning, fine-tuning a pretrained `wav2vec2-base` head.
+- **Semi-supervised / unsupervised** (`ser/semisupervised.py`) — K-Means feature
+  clustering (ARI/NMI/Hungarian), a reduced-label learning curve, and self-training
+  pseudo-labeling.
 - **Protocols** — **speaker-independent** within-corpus splits, MELD official
   folds, and the full **cross-corpus matrix** (train A → test B).
 - **Metrics** — accuracy, balanced accuracy, macro-F1, weighted-F1, per-class
@@ -121,6 +124,10 @@ python scripts/train.py --config configs/wav2vec2_cremad.yaml
 
 # Full within + cross-corpus matrix (the proposal's headline result):
 python scripts/train.py --config configs/cnn_cremad.yaml --cross-corpus
+
+# Semi-supervised / unsupervised analysis (K-Means clustering + reduced-label
+# learning curve + self-training pseudo-labeling) on CREMA-D:
+python scripts/semisupervised.py --config configs/baseline_cremad.yaml
 ```
 
 Outputs land in `outputs/<experiment>/`: `config.yaml`, `test_metrics.json`,

@@ -1,9 +1,11 @@
-# Konuşmadan Duygu Tanıma — Proje Raporu (Şablon)
+# Konuşmadan Duygu Tanıma — Proje Raporu
 
 > **YAP 470 / BİL 570 — Grup 23 — Ahmet Babagil (211101067)**
-> Bu şablon, kod çalıştırıldıkça üretilen çıktılarla (tablolar, karışıklık
-> matrisleri) doldurulmak üzere hazırlanmıştır. Yer tutucular `〔...〕` ile
-> işaretlenmiştir. İlgili görseller `outputs/` altında otomatik üretilir.
+> Tüm sonuçlar CREMA-D ve MELD gerçek verisiyle, denek-bağımsız protokolle elde
+> edilmiştir. Tek istisna `wav2vec2` transfer-öğrenme satırıdır: GPU (RTX 5080)
+> gerektirdiğinden bu makinede koşulmamış, kod ve talimatları hazırdır
+> (`docs/GPU_WAV2VEC2.md`). Kod ve tüm çıktılar:
+> <https://github.com/AhmetBabagil/speech-emotion-recognition>.
 
 ## 1. Problem ve Amaç
 Kısa bir konuşma kaydından, **yalnızca sesin akustik/prozodik özelliklerine**
@@ -43,6 +45,11 @@ Ortak 6 duygu: **angry, disgust, fear, happy, neutral, sad**.
 3. **Transfer öğrenme:** ön-eğitimli `wav2vec2-base` üzerine sınıflandırma
    başlığı (ince ayar). (HuggingFace transformers)
 
+**Yarı-denetimli / denetimsiz bileşen.** Önerideki yöntem maddesi gereği, MFCC
+öznitelikleri üzerinde: (a) **denetimsiz K-Means kümeleme** (K = 6), (b) **azaltılmış
+etiketle eğitim** (etiket eğrisi: %1–%100), ve (c) **yarı-denetimli kendi-kendine
+eğitim** (güvenli sözde-etiketleme) incelenir (`ser/semisupervised.py`).
+
 **Değerlendirme protokolü.**
 - **Denek-bağımsız (speaker-independent)** bölme: bir konuşmacı yalnızca tek bir
   kümede (eğitim/doğrulama/test) yer alır — duygu yerine sesi ezberlemeyi önler.
@@ -56,6 +63,7 @@ Ortak 6 duygu: **angry, disgust, fear, happy, neutral, sad**.
 - Donanım: eğitim RTX 5080 (16 GB, CUDA, AMP); geliştirme CPU.
 - Tekrarlanabilirlik: sabit tohum (`seed=42`), kaydedilen `config.yaml`.
 - Komutlar: bkz. `README.md`. Tüm matris: `python scripts/run_all.py`.
+  Yarı-denetimli/denetimsiz analiz: `python scripts/semisupervised.py`.
 
 ## 5. Sonuçlar
 > `python scripts/aggregate_results.py` → `outputs/results.csv` / `results.md`.
@@ -115,12 +123,70 @@ neutral baskınlığı). Bu nedenle doğruluk yerine **makro-F1** ve **dengeli d
 raporlanması kritiktir (her şeye "neutral" demek yüksek doğruluk ama düşük makro-F1
 verir).
 
+### 5.3 Yarı-denetimli ve denetimsiz bileşen (CREMA-D) — GERÇEK SONUÇLAR
+Önerideki yöntem maddesi gereği, MFCC öznitelikleri üzerinde üç analiz yapıldı
+(`scripts/semisupervised.py`).
+
+**(a) Denetimsiz kümeleme (K-Means, K = 6).** Hiç etiket kullanmadan kümeleme:
+
+| Metrik | Değer | Yorum |
+|--------|-------|-------|
+| Adjusted Rand Index (ARI) | 0.099 | düşük — kümeler duyguyla zayıf örtüşüyor |
+| Normalized Mutual Info (NMI) | 0.161 | düşük-orta |
+| Hungarian-eşlemeli doğruluk | 0.272 | şansın (0.167) **üzerinde** |
+| Hungarian-eşlemeli makro-F1 | 0.256 | — |
+
+Akustikte duygu yapısı **vardır** (etiket görmeden bile şansın üzerine çıkılıyor),
+ancak **zayıftır**: akustik değişkenliğin baskın ekseni duygu değil, konuşmacı ve
+cümle kimliğidir. Bu, denetimsiz tek başına SER için yetersiz olduğunu gösterir.
+
+![Denetimsiz K-Means karışıklık matrisi](figures/cluster_confusion.png)
+
+**(b) Azaltılmış etiketle eğitim (etiket eğrisi, LogReg).**
+
+| Etiket oranı | #Etiket | Makro-F1 |
+|--------------|---------|----------|
+| %1 | 64 | 0.329 |
+| %5 | 317 | 0.370 |
+| %10 | 638 | 0.383 |
+| %25 | 1.593 | 0.436 |
+| %50 | 3.191 | 0.505 |
+| %100 | 6.382 | 0.515 |
+
+Görev **etiket-verimlidir**: yalnızca %1 etiketle (64 örnek) makro-F1 0.33 (şansın
+2 katı), %25 etiketle tam başarımın ~%85'i elde edilir; %50'den sonra kazanç azalır.
+
+![Etiket verimliliği eğrisi](figures/label_efficiency.png)
+
+**(c) Yarı-denetimli kendi-kendine eğitim (self-training, %10 tohum).** %10 etiketli
+tohumdan başlayıp güven eşiği 0.80 ile 5.014 sözde-etiket eklendi:
+supervised-only makro-F1 **0.385** → self-training **0.384** (Δ = −0.001).
+Sözde-etiketleme burada **yardımcı olmadı**; taban sınıflandırıcının doğruluğu orta
+düzeyde olduğunda kendi hatalarını pekiştirir — literatürde bilinen, dürüst bir
+negatif sonuçtur.
+
 ## 6. Tartışma
-- Hangi sınıflar karışıyor? (örn. CREMA-D'de fear↔sad, MELD'de neutral baskınlığı)
-- Stüdyo↔gerçek-ortam farkının başarımı nasıl etkilediği.
-- Temel model vs CNN vs transfer öğrenme karşılaştırması.
-- Çapraz-veri-seti düşüşünün nedenleri (kayıt koşulları, konuşmacı/dil dağılımı,
-  etiketleme öznelliği).
+**Temel model vs CNN vs (denetimsiz/yarı-denetimli).** Denetimli ilerleme açıktır:
+MFCC+SVM (0.520) → log-mel CNN (0.557). Buna karşılık etiketsiz/az-etiketli yaklaşımlar
+sınırlı kalır — denetimsiz kümeleme yalnızca 0.256 makro-F1, self-training ise denetimli
+tabanın üzerine çıkamadı. Çıkarım: bu görevde **etiketli veri kritiktir**; ancak görev
+etiket-verimlidir (az etiketle makul başarım alınır).
+
+**Stüdyo ↔ gerçek-ortam farkı.** CREMA-D (kontrollü, dengeli) içinde başarım makul
+(0.52–0.56); MELD (gerçek-ortam, dengesiz) içinde belirgin düşer (0.19–0.21). Fark, MELD'in
+arka plan gürültüsü, değişken kayıt koşulları ve güçlü neutral baskınlığından kaynaklanır.
+
+**Çapraz-veri-seti düşüşünün nedenleri.** Köşegen-dışı çöküş (CREMA-D→MELD 0.10), iki
+korpusun (i) kayıt koşulları, (ii) konuşmacı/demografi dağılımı ve (iii) etiketleme
+biçimi/öznelliği bakımından farklı dağılımlardan gelmesindendir. Daha yüksek kapasiteli
+CNN bile bu farkı kapatamadı; aksine MELD→CREMA-D yönünde alana özgü ipuçlarını ezberleyip
+LogReg'den daha kötü genelleştirdi. Bu, alan kaymasının **kapasiteyle değil**, alan
+uyarlama (domain adaptation) yöntemleriyle ele alınması gerektiğini düşündürür.
+
+**Hangi sınıflar karışıyor.** CREMA-D karışıklık matrislerinde en kolay sınıf `angry`
+(yüksek enerji/perde belirgin), en zor `fear`'dır (`sad`/`neutral` ile karışır). MELD'de
+ise tahminler baskın `neutral` sınıfına kayar; bu yüzden doğruluk yüksek görünse de
+makro-F1 düşüktür.
 
 ## 7. Sonuç
 Her iki veri setinde (CREMA-D + MELD, ~19.500 kayıt, ortak 6 duygu) çalışan,
@@ -134,9 +200,13 @@ tanıma sistemi geliştirildi. Başlıca bulgular:
    0.083'e çöker — stüdyo→gerçek-ortam alan kaymasının somut, ölçülmüş kanıtı.
 3. **Metrik seçimi kritiktir:** MELD'in sınıf dengesizliği nedeniyle doğruluk
    yanıltıcıdır; makro-F1 ve dengeli doğruluk gerçek başarımı gösterir.
+4. **Etiketli veri kritik ama görev etiket-verimli:** Denetimsiz kümeleme akustikte
+   yalnızca zayıf bir duygu yapısı bulur (makro-F1 0.256); buna karşın %25 etiketle
+   tam başarımın ~%85'i elde edilir. Naif yarı-denetimli sözde-etiketleme ek fayda
+   sağlamadı.
 
-Derin MELD-içi ve wav2vec2 transfer-öğrenme deneyleri (GPU gerektirir) RTX 5080
-makinesinde aynı kod ve konfigürasyonlarla çalıştırılmaya hazırdır.
+Derin wav2vec2 transfer-öğrenme deneyi (GPU gerektirir) RTX 5080 makinesinde aynı
+kod ve konfigürasyonla çalıştırılmaya hazırdır (bkz. `docs/GPU_WAV2VEC2.md`).
 
 ## 8. Tekrarlanabilirlik ve doğrulama
 Kod: <https://github.com/AhmetBabagil/speech-emotion-recognition>.

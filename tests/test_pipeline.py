@@ -168,3 +168,50 @@ def test_cremad_manifest_parsing(tmp_path):
     assert len(rows) == 3
     assert {r["emotion"] for r in rows} == {"angry", "happy", "sad"}
     assert {r["speaker"] for r in rows} == {"1001", "1002", "1091"}  # actor id preserved
+
+
+def test_stratified_subset():
+    from ser.semisupervised import _stratified_subset
+    y = np.array([0] * 100 + [1] * 100 + [2] * 100)
+    rng = np.random.default_rng(0)
+    idx = _stratified_subset(y, 0.1, rng)
+    # ~10 per class, every class represented (>= min_per_class)
+    counts = np.bincount(y[idx], minlength=3)
+    assert (counts >= 1).all()
+    assert 25 <= len(idx) <= 40
+    # tiny fraction still keeps >= 1 per class
+    idx2 = _stratified_subset(y, 0.0, rng)
+    assert (np.bincount(y[idx2], minlength=3) >= 1).all()
+
+
+def test_semisupervised_runs(tmp_path):
+    pytest.importorskip("sklearn")
+    import soundfile as sf
+    from ser.semisupervised import cluster_analysis, label_efficiency
+
+    # synthetic manifest with separable per-emotion tones, several speakers
+    rows = []
+    for e_idx, emo in enumerate(CANONICAL_EMOTIONS):
+        for spk in range(8):
+            wav = _tone(freq=140 + 60 * e_idx)
+            p = tmp_path / f"spk{spk}_{emo}.wav"
+            sf.write(p, wav, 16000)
+            rows.append({"path": str(p), "corpus": CORPUS_CREMAD, "speaker": f"spk{spk}",
+                         "split": "", "orig_label": emo, "emotion": emo,
+                         "label_idx": EMOTION_TO_IDX[emo]})
+    manifest = tmp_path / "manifest.csv"
+    pd.DataFrame(rows).to_csv(manifest, index=False)
+
+    cfg = Config()
+    cfg.data.manifest = str(manifest)
+    cfg.data.cache_features = False
+    cfg.output_dir = str(tmp_path / "out")
+
+    clu = cluster_analysis(cfg, tmp_path / "out")
+    assert clu["n_clusters"] == NUM_CLASSES
+    assert -1.0 <= clu["adjusted_rand_index"] <= 1.0
+    assert 0.0 <= clu["normalized_mutual_info"] <= 1.0001
+
+    eff = label_efficiency(cfg, tmp_path / "out", fractions=(0.5, 1.0))
+    assert len(eff) == 2
+    assert all(0.0 <= r["macro_f1"] <= 1.0 for r in eff)
