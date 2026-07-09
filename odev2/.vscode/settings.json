@@ -1,0 +1,7 @@
+{
+  "workbench.localHistory.enabled": true,
+  "workbench.localHistory.maxFileEntries": 2400,
+  "workbench.localHistory.maxFileSize": 8192,
+  "workbench.localHistory.mergeWindow": 60,
+  "files.autoSave": "onFocusChange",
+}

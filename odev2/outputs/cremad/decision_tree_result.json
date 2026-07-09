@@ -1,0 +1,112 @@
+{
+  "corpus": "cremad",
+  "model": "Karar Agaci",
+  "model_key": "decision_tree",
+  "best_config": {
+    "feature": "mean_std",
+    "feature_dim": 1536,
+    "pca_dim": "none",
+    "params": {
+      "criterion": "entropy",
+      "max_depth": 8,
+      "min_samples_split": 10
+    },
+    "val_macro_f1": 0.4031,
+    "val_balanced_accuracy": 0.4056
+  },
+  "test": {
+    "accuracy": 0.3614,
+    "balanced_accuracy": 0.361,
+    "macro_f1": 0.3496,
+    "weighted_f1": 0.3494
+  },
+  "test_per_class": {
+    "angry": {
+      "precision": 0.4431818181818182,
+      "recall": 0.7090909090909091,
+      "f1": 0.5454545454545454,
+      "support": 55
+    },
+    "disgust": {
+      "precision": 0.2972972972972973,
+      "recall": 0.2,
+      "f1": 0.2391304347826087,
+      "support": 55
+    },
+    "fear": {
+      "precision": 0.25,
+      "recall": 0.2727272727272727,
+      "f1": 0.2608695652173913,
+      "support": 55
+    },
+    "happy": {
+      "precision": 0.32727272727272727,
+      "recall": 0.32727272727272727,
+      "f1": 0.32727272727272727,
+      "support": 55
+    },
+    "neutral": {
+      "precision": 0.37209302325581395,
+      "recall": 0.34782608695652173,
+      "f1": 0.3595505617977528,
+      "support": 46
+    },
+    "sad": {
+      "precision": 0.4473684210526316,
+      "recall": 0.3090909090909091,
+      "f1": 0.3655913978494624,
+      "support": 55
+    }
+  },
+  "confusion_matrix": [
+    [
+      39,
+      5,
+      5,
+      6,
+      0,
+      0
+    ],
+    [
+      8,
+      11,
+      8,
+      11,
+      9,
+      8
+    ],
+    [
+      17,
+      6,
+      15,
+      7,
+      7,
+      3
+    ],
+    [
+      22,
+      3,
+      9,
+      18,
+      2,
+      1
+    ],
+    [
+      2,
+      1,
+      7,
+      11,
+      16,
+      9
+    ],
+    [
+      0,
+      11,
+      16,
+      2,
+      9,
+      17
+    ]
+  ],
+  "validation_grid": "odev2\\outputs\\cremad\\decision_tree_validation_grid.csv"
+}

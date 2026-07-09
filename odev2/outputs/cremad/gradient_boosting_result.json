@@ -1,0 +1,111 @@
+{
+  "corpus": "cremad",
+  "model": "Gradient Boosting",
+  "model_key": "gradient_boosting",
+  "best_config": {
+    "feature": "mean_std",
+    "feature_dim": 1536,
+    "pca_dim": "none",
+    "params": {
+      "learning_rate": 0.1,
+      "max_depth": 3
+    },
+    "val_macro_f1": 0.5238,
+    "val_balanced_accuracy": 0.5226
+  },
+  "test": {
+    "accuracy": 0.5202,
+    "balanced_accuracy": 0.5179,
+    "macro_f1": 0.5144,
+    "weighted_f1": 0.5153
+  },
+  "test_per_class": {
+    "angry": {
+      "precision": 0.5053763440860215,
+      "recall": 0.8545454545454545,
+      "f1": 0.6351351351351351,
+      "support": 55
+    },
+    "disgust": {
+      "precision": 0.5862068965517241,
+      "recall": 0.3090909090909091,
+      "f1": 0.40476190476190477,
+      "support": 55
+    },
+    "fear": {
+      "precision": 0.38235294117647056,
+      "recall": 0.4727272727272727,
+      "f1": 0.42276422764227645,
+      "support": 55
+    },
+    "happy": {
+      "precision": 0.41818181818181815,
+      "recall": 0.41818181818181815,
+      "f1": 0.41818181818181815,
+      "support": 55
+    },
+    "neutral": {
+      "precision": 0.5405405405405406,
+      "recall": 0.43478260869565216,
+      "f1": 0.4819277108433735,
+      "support": 46
+    },
+    "sad": {
+      "precision": 0.8717948717948718,
+      "recall": 0.6181818181818182,
+      "f1": 0.723404255319149,
+      "support": 55
+    }
+  },
+  "confusion_matrix": [
+    [
+      47,
+      1,
+      4,
+      2,
+      1,
+      0
+    ],
+    [
+      10,
+      17,
+      7,
+      12,
+      7,
+      2
+    ],
+    [
+      13,
+      3,
+      26,
+      6,
+      5,
+      2
+    ],
+    [
+      19,
+      2,
+      10,
+      23,
+      1,
+      0
+    ],
+    [
+      3,
+      2,
+      11,
+      9,
+      20,
+      1
+    ],
+    [
+      1,
+      4,
+      10,
+      3,
+      3,
+      34
+    ]
+  ],
+  "validation_grid": "odev2\\outputs\\cremad\\gradient_boosting_validation_grid.csv"
+}

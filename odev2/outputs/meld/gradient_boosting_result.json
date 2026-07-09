@@ -1,0 +1,111 @@
+{
+  "corpus": "meld",
+  "model": "Gradient Boosting",
+  "model_key": "gradient_boosting",
+  "best_config": {
+    "feature": "mean_std",
+    "feature_dim": 1536,
+    "pca_dim": 64,
+    "params": {
+      "learning_rate": 0.1,
+      "max_depth": 3
+    },
+    "val_macro_f1": 0.2268,
+    "val_balanced_accuracy": 0.2312
+  },
+  "test": {
+    "accuracy": 0.2093,
+    "balanced_accuracy": 0.2072,
+    "macro_f1": 0.2027,
+    "weighted_f1": 0.2068
+  },
+  "test_per_class": {
+    "angry": {
+      "precision": 0.2459016393442623,
+      "recall": 0.2112676056338028,
+      "f1": 0.22727272727272727,
+      "support": 71
+    },
+    "disgust": {
+      "precision": 0.21794871794871795,
+      "recall": 0.27419354838709675,
+      "f1": 0.24285714285714285,
+      "support": 62
+    },
+    "fear": {
+      "precision": 0.16393442622950818,
+      "recall": 0.1282051282051282,
+      "f1": 0.14388489208633093,
+      "support": 78
+    },
+    "happy": {
+      "precision": 0.15254237288135594,
+      "recall": 0.11842105263157894,
+      "f1": 0.13333333333333333,
+      "support": 76
+    },
+    "neutral": {
+      "precision": 0.30526315789473685,
+      "recall": 0.3258426966292135,
+      "f1": 0.31521739130434784,
+      "support": 89
+    },
+    "sad": {
+      "precision": 0.13157894736842105,
+      "recall": 0.18518518518518517,
+      "f1": 0.15384615384615385,
+      "support": 54
+    }
+  },
+  "confusion_matrix": [
+    [
+      15,
+      14,
+      15,
+      6,
+      8,
+      13
+    ],
+    [
+      10,
+      17,
+      5,
+      8,
+      10,
+      12
+    ],
+    [
+      13,
+      12,
+      10,
+      13,
+      16,
+      14
+    ],
+    [
+      7,
+      14,
+      9,
+      9,
+      25,
+      12
+    ],
+    [
+      10,
+      11,
+      10,
+      14,
+      29,
+      15
+    ],
+    [
+      6,
+      10,
+      12,
+      9,
+      7,
+      10
+    ]
+  ],
+  "validation_grid": "odev2\\outputs\\meld\\gradient_boosting_validation_grid.csv"
+}
