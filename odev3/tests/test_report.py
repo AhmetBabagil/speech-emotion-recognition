@@ -12,6 +12,7 @@ from odev3.build_report import (
     TableBlock,
     _ablation_rows,
     _calibration_rows,
+    _feature_stability_rows,
     _render_docx,
     _render_html,
     build_report,
@@ -24,6 +25,7 @@ def test_report_helpers_load_expanded_ablation_and_calibration() -> None:
         Path('odev3/outputs/summary.json').read_text(encoding='utf-8')
     )
     calibration_rows = _calibration_rows(summary['per_dataset'])
+    stability_rows = _feature_stability_rows(Path('odev3/feature_stability'))
 
     assert len(ablation_rows) == 16
     assert {row[3] for row in ablation_rows} == {64, 80, 96}
@@ -34,6 +36,10 @@ def test_report_helpers_load_expanded_ablation_and_calibration() -> None:
     assert calibration_rows[0][5] == '0.2455 → 0.0575'
     assert calibration_rows[1][5] == '0.1049 → 0.0132'
     assert all(row[-1] is True for row in calibration_rows)
+    assert len(stability_rows) == 4
+    assert sum(bool(row[-1]) for row in stability_rows) == 2
+    assert stability_rows[0][8] == '0.4644 ± 0.0063'
+    assert stability_rows[2][8] == '0.2370 ± 0.0117'
 
 
 def test_html_renderer_preserves_turkish_text_and_escapes_content(
@@ -119,11 +125,20 @@ def test_final_report_builds_from_complete_experiment_artifacts(
     assert '0.2455 → 0.0575' in html
     assert '0.1049 → 0.0132' in html
     assert 'optimizasyon hedefinin ECE değil NLL olduğu' in paragraph_text
-    assert html.count('<img src=') == 6
+    assert html.count('<img src=') == 8
     assert '96×64 crop-pad macro-F1=0.4707' in paragraph_text
     assert '16 özellik ablation koşusu' in paragraph_text
+    assert 'Özellik Temsilinin Çoklu-Seed Doğrulaması' in paragraph_text
+    assert 'gradient norm clipping (5.0)' in paragraph_text
+    assert '0.4644 ± 0.0063' in html
+    assert '0.2370 ± 0.0117' in html
+    assert 'eşleştirilmiş 3 seed’in 2 tanesinde' in paragraph_text
+    assert 'eşleştirilmiş 3 seed’in 3 tanesinde' in paragraph_text
+    assert 'Seed 42 ile yeniden eğitilen 4 aday' in paragraph_text
+    assert 'maksimum mutlak fark 0.0000000000' in paragraph_text
+    assert '12 çoklu-seed özellik doğrulama koşusu' in paragraph_text
     assert 'temperature scaling' in paragraph_text
     assert 'class="missing"' not in html
-    assert html.count('<table>') == 19
-    assert len(document.tables) == 19
-    assert len(document.inline_shapes) == 6
+    assert html.count('<table>') == 20
+    assert len(document.tables) == 20
+    assert len(document.inline_shapes) == 8

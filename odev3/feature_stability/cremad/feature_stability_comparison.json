@@ -1,0 +1,36 @@
+{
+  "main_candidate": "main_64x64_resize",
+  "challenger_candidate": "challenger_96x64_crop_pad",
+  "seeds": [
+    42,
+    143,
+    244
+  ],
+  "paired_runs": [
+    {
+      "seed": 42,
+      "main_val_macro_f1": 0.4667200951728747,
+      "challenger_val_macro_f1": 0.4707456999279871,
+      "main_minus_challenger": -0.0040256047551123775,
+      "winner": "challenger"
+    },
+    {
+      "seed": 143,
+      "main_val_macro_f1": 0.4707315629229465,
+      "challenger_val_macro_f1": 0.4422147774867014,
+      "main_minus_challenger": 0.028516785436245085,
+      "winner": "main"
+    },
+    {
+      "seed": 244,
+      "main_val_macro_f1": 0.4557729382629713,
+      "challenger_val_macro_f1": 0.4516248198602388,
+      "main_minus_challenger": 0.004148118402732548,
+      "winner": "main"
+    }
+  ],
+  "main_wins": 2,
+  "challenger_wins": 1,
+  "ties": 0,
+  "mean_main_minus_challenger": 0.009546433027955084
+}

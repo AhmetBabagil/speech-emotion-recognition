@@ -395,7 +395,11 @@ def _access_blocks() -> list[ReportBlock]:
     ]
 
 
-def _execution_blocks(output_root: Path, results: dict[str, dict[str, Any]]) -> list[ReportBlock]:
+def _execution_blocks(
+    output_root: Path,
+    results: dict[str, dict[str, Any]],
+    stability_root: Path,
+) -> list[ReportBlock]:
     files = (
         ('odev3/run_experiment.py', 'Tüm veri kümesi için tarama, yerel iyileştirme, çoklu seed doğrulaması ve tek seferlik test değerlendirmesini çalıştırır.'),
         ('odev3/features_melspec.py', 'Sesi 16 kHz mono yükler; log-Mel spektrogramı sabit boyuta getirip 4096 elemanlı vektöre dönüştürür.'),
@@ -406,6 +410,7 @@ def _execution_blocks(output_root: Path, results: dict[str, dict[str, Any]]) -> 
         ('odev3/calibration.py', 'NLL, Brier ve ECE ölçer; validation olasılıklarında sıcaklık katsayısını öğrenip olasılıkları ölçekler.'),
         ('odev3/search_space.py', '16 temel tarama adayını ve kazanan çevresindeki 14 yerel adayı üretir.'),
         ('odev3/feature_ablation.py', '64/80/96 Mel, 64/96 kare ve crop/resize temsillerini yalnız geçerleme setinde karşılaştırır.'),
+        ('odev3/feature_stability.py', 'En güçlü iki Mel temsilini seed 42/143/244 ile yalnız geçerleme setinde yeniden eğitip ortalama ve sapmayı ölçer.'),
         ('odev3/pipeline.py', 'Speaker-independent bölmeleri, resume durumunu, model kaydını, tahminleri, belirsizliği ve validation-temelli kalibrasyonu yönetir.'),
         ('odev3/build_report.py', 'Gerçek deney çıktılarından bu HTML ve DOCX raporlarını üretir.'),
     )
@@ -428,6 +433,16 @@ def _execution_blocks(output_root: Path, results: dict[str, dict[str, Any]]) -> 
             artifact_rows.append(
                 (DISPLAY[corpus], path.as_posix(), purpose, _artifact_status(path))
             )
+        for name, purpose in (
+            ('feature_stability_runs.csv', 'İki temsil × üç seed ham validation koşuları'),
+            ('feature_stability.csv', 'Üç-seed ortalama, standart sapma ve sıralama'),
+            ('feature_stability_comparison.json', 'Eşleştirilmiş seed farkları ve aday kazanım sayıları'),
+            ('feature_stability.png', 'Seed noktaları ile ortalama ± standart sapma görseli'),
+        ):
+            path = stability_root / corpus / name
+            artifact_rows.append(
+                (DISPLAY[corpus], path.as_posix(), purpose, _artifact_status(path))
+            )
     return [
         Heading(2, 'Çalıştırılacak Dosyalar ve Ne Yaptıkları'),
         TableBlock(('Dosya', 'Görev'), files),
@@ -441,6 +456,11 @@ def _execution_blocks(output_root: Path, results: dict[str, dict[str, Any]]) -> 
             'Özellik karşılaştırması: python odev3/feature_ablation.py '
             '--corpora cremad meld --max-epochs 60 --device cpu '
             '--feature-workers 4'
+        ),
+        Paragraph(
+            'Çoklu-seed özellik doğrulaması: python -m '
+            'odev3.feature_stability --corpora cremad meld --max-epochs 60 '
+            '--seeds 42 143 244 --device cpu --feature-workers 4'
         ),
         Paragraph('Rapor: python odev3/build_report.py --output-root odev3/outputs'),
         Heading(3, 'Üretilen Temel Dosyalar'),
@@ -556,6 +576,7 @@ def _ablation_rows(ablation_root: Path) -> tuple[tuple[Any, ...], ...]:
 def _ablation_findings(
     ablation_root: Path,
     results: dict[str, dict[str, Any]],
+    stability_root: Path | None = None,
 ) -> str:
     findings: list[str] = []
     confirmation_needed = False
@@ -595,18 +616,133 @@ def _ablation_findings(
                 )
         findings.append(sentence)
     if confirmation_needed:
-        findings.append(
-            'Genişletilmiş aday tek seed ile ve yalnız validation katında '
-            'değerlendirildiğinden, küçük fark nihai checkpoint’i test sonucuna '
-            'göre geriye dönük değiştirmek için kullanılmamış; çoklu-seed '
-            'doğrulama adayı olarak kaydedilmiştir.'
+        confirmation_complete = bool(
+            stability_root
+            and all(
+                (stability_root / corpus / 'feature_stability.csv').is_file()
+                for corpus in results
+            )
         )
+        if confirmation_complete:
+            findings.append(
+                'Tek-seed fark küçük olduğundan nihai checkpoint test sonucuna '
+                'göre değiştirilmemiş; adaylar aşağıdaki üç-seed validation '
+                'deneyinde ayrıca doğrulanmıştır.'
+            )
+        else:
+            findings.append(
+                'Genişletilmiş aday tek seed ile ve yalnız validation katında '
+                'değerlendirildiğinden, küçük fark nihai checkpoint’i test '
+                'sonucuna göre geriye dönük değiştirmek için kullanılmamış; '
+                'çoklu-seed doğrulama adayı olarak kaydedilmiştir.'
+            )
+    return ' '.join(findings)
+
+
+def _feature_stability_rows(
+    stability_root: Path,
+) -> tuple[tuple[Any, ...], ...]:
+    rows: list[tuple[Any, ...]] = []
+    for corpus in ('cremad', 'meld'):
+        path = stability_root / corpus / 'feature_stability.csv'
+        if not path.is_file():
+            continue
+        frame = pd.read_csv(path).sort_values('rank')
+        for row in frame.itertuples(index=False):
+            rows.append(
+                (
+                    DISPLAY[corpus],
+                    'Ana temsil' if str(row.candidate).startswith('main_')
+                    else 'Alternatif',
+                    str(row.frame_strategy).replace('_', '-'),
+                    int(row.n_mels),
+                    int(row.n_frames),
+                    int(row.vector_size),
+                    int(row.runs),
+                    str(row.seeds),
+                    f'{row.val_macro_f1_mean:.4f} ± '
+                    f'{row.val_macro_f1_std:.4f}',
+                    row.val_macro_f1_min,
+                    row.val_macro_f1_max,
+                    int(row.rank) == 1,
+                )
+            )
+    return tuple(rows)
+
+
+def _feature_stability_findings(
+    stability_root: Path,
+    ablation_root: Path,
+) -> str:
+    findings = []
+    reproduced_rows = 0
+    maximum_reproduction_difference = 0.0
+    for corpus in ('cremad', 'meld'):
+        path = stability_root / corpus / 'feature_stability.csv'
+        if not path.is_file():
+            continue
+        frame = pd.read_csv(path)
+        main = frame[frame['candidate'].astype(str).str.startswith('main_')].iloc[0]
+        challenger = frame[
+            frame['candidate'].astype(str).str.startswith('challenger_')
+        ].iloc[0]
+        comparison = _read_json(
+            stability_root / corpus / 'feature_stability_comparison.json'
+        )
+        difference = float(
+            main['val_macro_f1_mean'] - challenger['val_macro_f1_mean']
+        )
+        findings.append(
+            f'{DISPLAY[corpus]} ana 64×64 temsilinin üç-seed validation '
+            f'macro-F1 değeri {main["val_macro_f1_mean"]:.4f} ± '
+            f'{main["val_macro_f1_std"]:.4f}, alternatifin değeri '
+            f'{challenger["val_macro_f1_mean"]:.4f} ± '
+            f'{challenger["val_macro_f1_std"]:.4f}; ortalama fark '
+            f'{difference:+.4f} olmuştur. Ana temsil eşleştirilmiş '
+            f'{len(comparison["seeds"])} seed’in '
+            f'{comparison["main_wins"]} tanesinde daha yüksek macro-F1 '
+            'üretmiştir.'
+        )
+        original = pd.read_csv(
+            ablation_root / corpus / 'feature_ablation.csv'
+        )
+        repeated = pd.read_csv(
+            stability_root / corpus / 'feature_stability_runs.csv'
+        )
+        repeated = repeated[repeated['seed'] == 42]
+        matched = repeated.merge(
+            original,
+            on='feature_fingerprint',
+            suffixes=('_repeat', '_original'),
+        )
+        differences = (
+            matched['val_macro_f1_repeat']
+            - matched['val_macro_f1_original']
+        ).abs()
+        reproduced_rows += len(matched)
+        if not differences.empty:
+            maximum_reproduction_difference = max(
+                maximum_reproduction_difference,
+                float(differences.max()),
+            )
+    if reproduced_rows:
+        findings.append(
+            f'Seed 42 ile yeniden eğitilen {reproduced_rows} aday, ilk ablation '
+            'koşularındaki macro-F1 değerlerini tam olarak yeniden üretmiş; '
+            f'maksimum mutlak fark {maximum_reproduction_difference:.10f} '
+            'olmuştur.'
+        )
+    findings.append(
+        'Bu doğrulamada yalnız train ve validation özellikleri yüklenmiş, '
+        'held-out test kayıtları model veya temsil seçiminde kullanılmamıştır.'
+    )
     return ' '.join(findings)
 
 
 def _method_blocks(
     results: dict[str, dict[str, Any]],
     ablation_root: Path,
+    stability_root: Path,
 ) -> list[ReportBlock]:
     architecture_rows = []
     for corpus, result in results.items():
@@ -655,9 +791,54 @@ def _method_blocks(
                     ablation_rows,
                     'Tablo 3. Yalnız geçerleme katında Mel özellik ablation sonuçları',
                 ),
-                Paragraph(_ablation_findings(ablation_root, results)),
+                Paragraph(
+                    _ablation_findings(
+                        ablation_root,
+                        results,
+                        stability_root,
+                    )
+                ),
             ]
         )
+    stability_rows = _feature_stability_rows(stability_root)
+    if stability_rows:
+        blocks.extend(
+            [
+                Heading(3, 'Özellik Temsilinin Çoklu-Seed Doğrulaması'),
+                Paragraph(
+                    'Tek-seed ablation sıralamasındaki küçük farkların '
+                    'kararlılığını ölçmek için her corpus’ta ana temsil ve en '
+                    'güçlü alternatif aynı referans MLP ile seed 42, 143 ve 244 '
+                    'üzerinde yeniden eğitilmiştir. Seçim ölçütü üç seed’in '
+                    'validation macro-F1 ortalamasıdır; standart sapma, minimum '
+                    've maksimum değerler de saklanmıştır.'
+                ),
+                TableBlock(
+                    (
+                        'Veri seti', 'Aday', 'Zaman işlemi', 'Mel', 'Kare',
+                        'Boyut', 'Koşu', 'Seed’ler', 'Macro-F1 ort. ± std',
+                        'Minimum', 'Maksimum', 'Seçildi',
+                    ),
+                    stability_rows,
+                    'Tablo 4. Mel temsillerinin üç-seed validation kararlılığı',
+                ),
+                Paragraph(
+                    _feature_stability_findings(
+                        stability_root,
+                        ablation_root,
+                    )
+                ),
+            ]
+        )
+        for corpus in results:
+            blocks.append(
+                ImageBlock(
+                    stability_root / corpus / 'feature_stability.png',
+                    f'{DISPLAY[corpus]} Mel temsil kararlılığı',
+                    f'{DISPLAY[corpus]} için üç seed sonucu, ortalama ve '
+                    'standart sapma.',
+                )
+            )
     blocks.extend(
         [
             Heading(3, 'Nihai MLP Yapısı'),
@@ -666,7 +847,7 @@ def _method_blocks(
                 'Linear → isteğe bağlı BatchNorm1d → aktivasyon → Dropout '
                 'sırasındadır. Çıkış katmanı altı logit üretir. Eğitimde '
                 'weighted CrossEntropyLoss, AdamW, gradient norm clipping '
-                '(1.0) ve validation macro-F1 tabanlı erken durdurma '
+                '(5.0) ve validation macro-F1 tabanlı erken durdurma '
                 'kullanılmıştır. Üst sınır 60 epoch’tur.'
             ),
             TableBlock(
@@ -675,7 +856,7 @@ def _method_blocks(
                     'Aktivasyon', 'Batch norm', 'Dropout', 'Eğitilebilir parametre',
                 ),
                 tuple(architecture_rows),
-                'Tablo 4. Nihai veri-kümesine özel MLP mimarileri',
+                'Tablo 5. Nihai veri-kümesine özel MLP mimarileri',
             ),
         ]
     )
@@ -807,10 +988,10 @@ def _validation_blocks(
                 'Aktivasyon', 'BN', 'Dropout', 'Weight decay', 'Seed',
             ),
             _hyperparameter_summary_rows(validations),
-            'Tablo 5. Gerçekten taranan hiperparametre değerleri',
+            'Tablo 6. Gerçekten taranan hiperparametre değerleri',
         ),
     ]
-    table_number = 6
+    table_number = 7
     for corpus, frame in validations.items():
         display = DISPLAY[corpus]
         blocks.extend(
@@ -1164,14 +1345,23 @@ def _test_blocks(output_root: Path, results: dict[str, dict[str, Any]]) -> list[
 def _conclusion_blocks(
     results: dict[str, dict[str, Any]],
     ablation_root: Path,
+    stability_root: Path,
 ) -> list[ReportBlock]:
     total_trials = sum(int(result['num_trials']) for result in results.values())
     feature_trials = len(_ablation_rows(ablation_root))
+    stability_trials = sum(
+        len(pd.read_csv(path))
+        for corpus in results
+        if (
+            path := stability_root / corpus / 'feature_stability_runs.csv'
+        ).is_file()
+    )
     return [
         Heading(2, 'Sonuç ve İleride Yapılacaklar'),
         Paragraph(
             f'Bu aşamada {len(results)} veri kümesi için toplam {total_trials} '
-            f'hiperparametre/seed koşusu ve {feature_trials} özellik ablation koşusu '
+            f'hiperparametre/seed koşusu, {feature_trials} özellik ablation '
+            f'koşusu ve {stability_trials} çoklu-seed özellik doğrulama koşusu '
             'tamamlanmıştır. Her veri kümesi için bağımsız, sıfırdan PyTorch '
             'MLP modeli; train-only normalizasyon; sınıf ağırlıklı kayıp; erken '
             'durdurma; kaydedilmiş checkpoint; test tahminleri, karmaşıklık '
@@ -1186,7 +1376,6 @@ def _conclusion_blocks(
                 'Test setine dokunmadan eğitim katında gürültü, zaman kaydırma ve kontrollü SpecAugment veri artırımı denenmesi.',
                 'MELD’de çok uzun veya hatalı kesilmiş kayıtların eğitimden önce otomatik süre/sessizlik kalite kontrolünden geçirilmesi.',
                 'Seed duyarlılığını azaltmak için daha fazla tekrar ve doğrulama temelli olasılık ortalamalı MLP ensemble araştırılması.',
-                'CREMA-D’de 96×64 crop-pad adayının küçük validation kazancının çoklu seed koşularıyla doğrulanması.',
                 'MELD için sonraki proje aşamalarında konuşma bağlamı ve metin bilgisinin, ödev kısıtlarına uygun ayrı bir deney olarak değerlendirilmesi.',
                 'Validation NLL hedefli tek sıcaklık katsayısının classwise ECE, adaptive ECE ve yalnız validation üzerinde seçilecek alternatif kalibrasyon yöntemleriyle karşılaştırılması.',
                 'Hata örneklerinin konuşmacı ve süre bazında incelenmesi ve sınıf bazlı veri artırımı.',
@@ -1202,6 +1391,7 @@ def _conclusion_blocks(
                 ('Sınıf dengesizliği ağırlıklı kayıpla ele alındı', True, 'training_class_weights'),
                 ('Erken durdurma uygulandı', True, '32 koşunun history/CSV kayıtları'),
                 ('Tüm temel MLP hiperparametreleri denendi', True, 'validation_results.csv tabloları'),
+                ('Özellik seçimi çoklu seed ile doğrulandı', True, 'feature_stability.csv ve üç-seed PNG'),
                 ('En iyi modeller kaydedildi', True, 'cremad/meld best_model.pt'),
                 ('Held-out test ve karmaşıklık matrisi verildi', True, 'test_predictions.csv ve PNG'),
                 ('Test belirsizliği ve validation-temelli kalibrasyon raporlandı', True, 'test_uncertainty.json, temperature_scaling.json ve reliability PNG'),
@@ -1214,6 +1404,7 @@ def _conclusion_blocks(
 def _build_report_blocks(
     output_root: Path,
     ablation_root: Path,
+    stability_root: Path,
 ) -> tuple[list[ReportBlock], bool]:
     summary, results, validations = _load_report_inputs(output_root)
     diagnostic = bool(summary.get('diagnostic_limit_per_split')) or summary.get(
@@ -1241,12 +1432,12 @@ def _build_report_blocks(
             )
         )
     blocks.extend(_access_blocks())
-    blocks.extend(_execution_blocks(output_root, results))
+    blocks.extend(_execution_blocks(output_root, results, stability_root))
     blocks.extend(_dataset_blocks(results))
-    blocks.extend(_method_blocks(results, ablation_root))
+    blocks.extend(_method_blocks(results, ablation_root, stability_root))
     blocks.extend(_validation_blocks(output_root, results, validations))
     blocks.extend(_test_blocks(output_root, results))
-    blocks.extend(_conclusion_blocks(results, ablation_root))
+    blocks.extend(_conclusion_blocks(results, ablation_root, stability_root))
     return blocks, diagnostic
 
 
@@ -1254,13 +1445,18 @@ def build_report(
     *,
     output_root: str | Path = 'odev3/outputs',
     ablation_root: str | Path = 'odev3/feature_ablation',
+    stability_root: str | Path = 'odev3/feature_stability',
     html_path: str | Path | None = None,
     docx_path: str | Path | None = None,
 ) -> ReportPaths:
     '''Build final HTML and Word reports from persisted experiment artifacts.'''
 
     output_root = Path(output_root)
-    blocks, diagnostic = _build_report_blocks(output_root, Path(ablation_root))
+    blocks, diagnostic = _build_report_blocks(
+        output_root,
+        Path(ablation_root),
+        Path(stability_root),
+    )
     paths = _report_paths(output_root, diagnostic, html_path, docx_path)
     title = 'YAP 470 / BİL 570 – Proje İlerleme Raporu 3'
     _render_html(blocks, paths.html, title)
@@ -1272,12 +1468,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output-root', default='odev3/outputs')
     parser.add_argument('--ablation-root', default='odev3/feature_ablation')
+    parser.add_argument('--stability-root', default='odev3/feature_stability')
     parser.add_argument('--html')
     parser.add_argument('--docx')
     args = parser.parse_args()
     paths = build_report(
         output_root=args.output_root,
         ablation_root=args.ablation_root,
+        stability_root=args.stability_root,
         html_path=args.html,
         docx_path=args.docx,
     )

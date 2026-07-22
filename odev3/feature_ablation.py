@@ -19,7 +19,7 @@ from odev3.dataset import FeatureStandardizer, load_feature_matrix
 from odev3.features_melspec import MelSpecConfig
 from odev3.model import MLPConfig
 from odev3.pipeline import SEED, _splits_for
-from odev3.training import inverse_frequency_weights, train_with_early_stopping
+from odev3.training import train_with_early_stopping
 from ser.constants import NUM_CLASSES
 from ser.utils import ensure_dir, get_device
 
@@ -156,7 +156,6 @@ def run_corpus_ablation(
         standardizer = FeatureStandardizer.fit(train_features)
         train_features = standardizer.transform(train_features)
         validation_features = standardizer.transform(validation_features)
-        class_weights = inverse_frequency_weights(train_labels, NUM_CLASSES)
         outcome = train_with_early_stopping(
             train_features,
             train_labels,
