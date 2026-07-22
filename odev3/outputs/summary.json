@@ -1,0 +1,459 @@
+{
+  "assignment": 3,
+  "manifest": "odev1\\manifest_subset.csv",
+  "grid_mode": "report",
+  "max_epochs": 60,
+  "diagnostic_limit_per_split": null,
+  "resume_enabled": true,
+  "device": "cpu",
+  "torch_version": "2.12.0+cpu",
+  "cuda_version": null,
+  "feature_config": {
+    "sample_rate": 16000,
+    "n_mels": 64,
+    "n_frames": 64,
+    "n_fft": 1024,
+    "hop_length": 512,
+    "fmin": 20.0,
+    "fmax": 8000.0,
+    "top_db": 80.0,
+    "vector_size": 4096
+  },
+  "per_dataset": {
+    "cremad": {
+      "corpus": "cremad",
+      "manifest": "odev1\\manifest_subset.csv",
+      "grid_mode": "report",
+      "diagnostic_limit_per_split": null,
+      "seed": 42,
+      "selection_metric": "validation macro-F1",
+      "search_protocol": "screening -> local refinement -> multi-seed stability",
+      "stability_seeds": [
+        42,
+        143,
+        244
+      ],
+      "num_trials": 32,
+      "search_stages": {
+        "screening": 16,
+        "refinement": 14,
+        "stability": 2
+      },
+      "stability": {
+        "config_id": "0c7694b11955",
+        "config": {
+          "batch_size": 64,
+          "learning_rate": 0.0003,
+          "patience": 12,
+          "hidden_dims": [
+            768,
+            384
+          ],
+          "activation": "relu",
+          "batch_norm": true,
+          "dropout": 0.3,
+          "weight_decay": 0.0001
+        },
+        "seeds": [
+          42,
+          143,
+          244
+        ],
+        "runs": 3,
+        "val_macro_f1_mean": 0.4487288805213625,
+        "val_macro_f1_std": 0.01121215188189823,
+        "val_macro_f1_min": 0.4396333801137204,
+        "val_macro_f1_max": 0.46452484965019863,
+        "val_balanced_accuracy_mean": 0.45740740740740743,
+        "val_accuracy_mean": 0.4585365853658536
+      },
+      "feature": {
+        "sample_rate": 16000,
+        "n_mels": 64,
+        "n_frames": 64,
+        "n_fft": 1024,
+        "hop_length": 512,
+        "fmin": 20.0,
+        "fmax": 8000.0,
+        "top_db": 80.0,
+        "vector_size": 4096,
+        "method": "librosa.feature.melspectrogram -> log dB -> 64x64 -> flatten",
+        "pca": false
+      },
+      "preprocessing": {
+        "normalization": "per-dimension z-score",
+        "normalizer_fit": "training fold only"
+      },
+      "split": {
+        "protocol": "speaker-independent 70/15/15, seed=42",
+        "train": {
+          "records": 1749,
+          "speakers": 22,
+          "class_counts": {
+            "angry": 299,
+            "disgust": 299,
+            "fear": 299,
+            "happy": 299,
+            "neutral": 255,
+            "sad": 298
+          }
+        },
+        "validation": {
+          "records": 410,
+          "speakers": 5,
+          "class_counts": {
+            "angry": 70,
+            "disgust": 70,
+            "fear": 70,
+            "happy": 70,
+            "neutral": 60,
+            "sad": 70
+          }
+        },
+        "test": {
+          "records": 321,
+          "speakers": 4,
+          "class_counts": {
+            "angry": 55,
+            "disgust": 55,
+            "fear": 55,
+            "happy": 55,
+            "neutral": 46,
+            "sad": 55
+          }
+        },
+        "speaker_overlap": {
+          "train_validation": [],
+          "train_test": [],
+          "validation_test": []
+        }
+      },
+      "training_class_weights": {
+        "angry": 0.974916398525238,
+        "disgust": 0.974916398525238,
+        "fear": 0.974916398525238,
+        "happy": 0.974916398525238,
+        "neutral": 1.1431372165679932,
+        "sad": 0.9781879186630249
+      },
+      "best_trial": 26,
+      "selected_seed": 42,
+      "best_config": {
+        "batch_size": 64,
+        "learning_rate": 0.0003,
+        "patience": 12,
+        "hidden_dims": [
+          768,
+          384
+        ],
+        "activation": "relu",
+        "batch_norm": true,
+        "dropout": 0.3,
+        "weight_decay": 0.0001
+      },
+      "model_parameters": 3446406,
+      "best_epoch": 47,
+      "epochs_trained": 59,
+      "stopped_early": true,
+      "validation_loss": 2.03378696150896,
+      "validation": {
+        "accuracy": 0.47560975609756095,
+        "balanced_accuracy": 0.47539682539682543,
+        "macro_f1": 0.46452484965019863,
+        "weighted_f1": 0.46465920224062734,
+        "per_class": {
+          "angry": {
+            "precision": 0.5652173913043478,
+            "recall": 0.7428571428571429,
+            "f1": 0.6419753086419753,
+            "support": 70
+          },
+          "disgust": {
+            "precision": 0.5178571428571429,
+            "recall": 0.4142857142857143,
+            "f1": 0.4603174603174603,
+            "support": 70
+          },
+          "fear": {
+            "precision": 0.36619718309859156,
+            "recall": 0.37142857142857144,
+            "f1": 0.36879432624113473,
+            "support": 70
+          },
+          "happy": {
+            "precision": 0.4186046511627907,
+            "recall": 0.2571428571428571,
+            "f1": 0.3185840707964602,
+            "support": 70
+          },
+          "neutral": {
+            "precision": 0.45161290322580644,
+            "recall": 0.4666666666666667,
+            "f1": 0.45901639344262296,
+            "support": 60
+          },
+          "sad": {
+            "precision": 0.4883720930232558,
+            "recall": 0.6,
+            "f1": 0.5384615384615384,
+            "support": 70
+          }
+        },
+        "confusion_matrix": [
+          [
+            52,
+            5,
+            9,
+            3,
+            0,
+            1
+          ],
+          [
+            5,
+            29,
+            11,
+            3,
+            10,
+            12
+          ],
+          [
+            12,
+            4,
+            26,
+            7,
+            5,
+            16
+          ],
+          [
+            19,
+            7,
+            15,
+            18,
+            7,
+            4
+          ],
+          [
+            3,
+            5,
+            3,
+            10,
+            28,
+            11
+          ],
+          [
+            1,
+            6,
+            7,
+            2,
+            12,
+            42
+          ]
+        ]
+      },
+      "test_loss": 2.8056219359424626,
+      "test": {
+        "accuracy": 0.4143302180685358,
+        "balanced_accuracy": 0.41607378129117256,
+        "macro_f1": 0.3986352298997742,
+        "weighted_f1": 0.39512567025744477,
+        "per_class": {
+          "angry": {
+            "precision": 0.37398373983739835,
+            "recall": 0.8363636363636363,
+            "f1": 0.5168539325842697,
+            "support": 55
+          },
+          "disgust": {
+            "precision": 0.5789473684210527,
+            "recall": 0.2,
+            "f1": 0.2972972972972973,
+            "support": 55
+          },
+          "fear": {
+            "precision": 0.3114754098360656,
+            "recall": 0.34545454545454546,
+            "f1": 0.3275862068965517,
+            "support": 55
+          },
+          "happy": {
+            "precision": 0.24324324324324326,
+            "recall": 0.16363636363636364,
+            "f1": 0.1956521739130435,
+            "support": 55
+          },
+          "neutral": {
+            "precision": 0.5789473684210527,
+            "recall": 0.4782608695652174,
+            "f1": 0.5238095238095238,
+            "support": 46
+          },
+          "sad": {
+            "precision": 0.6046511627906976,
+            "recall": 0.4727272727272727,
+            "f1": 0.5306122448979592,
+            "support": 55
+          }
+        },
+        "confusion_matrix": [
+          [
+            46,
+            1,
+            6,
+            2,
+            0,
+            0
+          ],
+          [
+            23,
+            11,
+            7,
+            7,
+            4,
+            3
+          ],
+          [
+            18,
+            0,
+            19,
+            8,
+            3,
+            7
+          ],
+          [
+            29,
+            0,
+            16,
+            9,
+            1,
+            0
+          ],
+          [
+            5,
+            2,
+            5,
+            5,
+            22,
+            7
+          ],
+          [
+            2,
+            5,
+            8,
+            6,
+            8,
+            26
+          ]
+        ]
+      },
+      "artifacts": {
+        "model": "odev3\\outputs\\cremad\\best_model.pt",
+        "validation_results": "odev3\\outputs\\cremad\\validation_results.csv",
+        "history": "odev3\\outputs\\cremad\\best_training_history.csv",
+        "confusion_matrix": "odev3\\outputs\\cremad\\test_confusion_matrix.png",
+        "predictions": "odev3\\outputs\\cremad\\test_predictions.csv",
+        "search_state": "odev3\\outputs\\cremad\\search_state.pt"
+      }
+    }
+  },
+  "comparison_rows": [
+    {
+      "corpus": "cremad",
+      "model": "Gradient Boosting",
+      "feature_dim": 1536,
+      "pca_dim": "none",
+      "params": "{\"learning_rate\": 0.1, \"max_depth\": 3}",
+      "test_accuracy": 0.5202,
+      "test_balanced_accuracy": 0.5179,
+      "test_macro_f1": 0.5144,
+      "test_weighted_f1": 0.5153
+    },
+    {
+      "corpus": "cremad",
+      "model": "Rastgele Orman",
+      "feature_dim": 1536,
+      "pca_dim": "none",
+      "params": "{\"max_depth\": 16, \"max_features\": \"log2\", \"n_estimators\": 100}",
+      "test_accuracy": 0.486,
+      "test_balanced_accuracy": 0.484,
+      "test_macro_f1": 0.4721,
+      "test_weighted_f1": 0.4717
+    },
+    {
+      "corpus": "cremad",
+      "model": "KNN (Odev 1)",
+      "feature_dim": 2304,
+      "pca_dim": "256",
+      "params": "{\"K\": 15}",
+      "test_accuracy": 0.4798,
+      "test_balanced_accuracy": 0.4803,
+      "test_macro_f1": 0.4657,
+      "test_weighted_f1": 0.4641
+    },
+    {
+      "corpus": "cremad",
+      "model": "MLP (Ödev 3)",
+      "feature_dim": 4096,
+      "pca_dim": "none",
+      "params": "{\"activation\": \"relu\", \"batch_norm\": true, \"batch_size\": 64, \"dropout\": 0.3, \"hidden_dims\": [768, 384], \"learning_rate\": 0.0003, \"patience\": 12, \"weight_decay\": 0.0001}",
+      "test_accuracy": 0.4143302180685358,
+      "test_balanced_accuracy": 0.41607378129117256,
+      "test_macro_f1": 0.3986352298997742,
+      "test_weighted_f1": 0.39512567025744477
+    },
+    {
+      "corpus": "cremad",
+      "model": "Karar Agaci",
+      "feature_dim": 1536,
+      "pca_dim": "none",
+      "params": "{\"criterion\": \"entropy\", \"max_depth\": 8, \"min_samples_split\": 10}",
+      "test_accuracy": 0.3614,
+      "test_balanced_accuracy": 0.361,
+      "test_macro_f1": 0.3496,
+      "test_weighted_f1": 0.3494
+    },
+    {
+      "corpus": "meld",
+      "model": "Gradient Boosting",
+      "feature_dim": 1536,
+      "pca_dim": "64",
+      "params": "{\"learning_rate\": 0.1, \"max_depth\": 3}",
+      "test_accuracy": 0.2093,
+      "test_balanced_accuracy": 0.2072,
+      "test_macro_f1": 0.2027,
+      "test_weighted_f1": 0.2068
+    },
+    {
+      "corpus": "meld",
+      "model": "Rastgele Orman",
+      "feature_dim": 2304,
+      "pca_dim": "64",
+      "params": "{\"max_depth\": 16, \"max_features\": \"sqrt\", \"n_estimators\": 100}",
+      "test_accuracy": 0.2116,
+      "test_balanced_accuracy": 0.2146,
+      "test_macro_f1": 0.2006,
+      "test_weighted_f1": 0.2004
+    },
+    {
+      "corpus": "meld",
+      "model": "KNN (Odev 1)",
+      "feature_dim": 768,
+      "pca_dim": "128",
+      "params": "{\"K\": 5}",
+      "test_accuracy": 0.2047,
+      "test_balanced_accuracy": 0.2063,
+      "test_macro_f1": 0.1941,
+      "test_weighted_f1": 0.1938
+    },
+    {
+      "corpus": "meld",
+      "model": "Karar Agaci",
+      "feature_dim": 768,
+      "pca_dim": "128",
+      "params": "{\"criterion\": \"gini\", \"max_depth\": 8, \"min_samples_split\": 10}",
+      "test_accuracy": 0.1465,
+      "test_balanced_accuracy": 0.1475,
+      "test_macro_f1": 0.143,
+      "test_weighted_f1": 0.1463
+    }
+  ]
+}

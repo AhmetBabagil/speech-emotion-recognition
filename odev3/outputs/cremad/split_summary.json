@@ -1,0 +1,44 @@
+{
+  "protocol": "speaker-independent 70/15/15, seed=42",
+  "train": {
+    "records": 1749,
+    "speakers": 22,
+    "class_counts": {
+      "angry": 299,
+      "disgust": 299,
+      "fear": 299,
+      "happy": 299,
+      "neutral": 255,
+      "sad": 298
+    }
+  },
+  "validation": {
+    "records": 410,
+    "speakers": 5,
+    "class_counts": {
+      "angry": 70,
+      "disgust": 70,
+      "fear": 70,
+      "happy": 70,
+      "neutral": 60,
+      "sad": 70
+    }
+  },
+  "test": {
+    "records": 321,
+    "speakers": 4,
+    "class_counts": {
+      "angry": 55,
+      "disgust": 55,
+      "fear": 55,
+      "happy": 55,
+      "neutral": 46,
+      "sad": 55
+    }
+  },
+  "speaker_overlap": {
+    "train_validation": [],
+    "train_test": [],
+    "validation_test": []
+  }
+}

@@ -1,0 +1,10 @@
+corpus,model,feature_dim,pca_dim,params,test_accuracy,test_balanced_accuracy,test_macro_f1,test_weighted_f1
+cremad,Gradient Boosting,1536,none,"{""learning_rate"": 0.1, ""max_depth"": 3}",0.5202,0.5179,0.5144,0.5153
+cremad,Rastgele Orman,1536,none,"{""max_depth"": 16, ""max_features"": ""log2"", ""n_estimators"": 100}",0.486,0.484,0.4721,0.4717
+cremad,KNN (Odev 1),2304,256,"{""K"": 15}",0.4798,0.4803,0.4657,0.4641
+cremad,MLP (Ödev 3),4096,none,"{""activation"": ""relu"", ""batch_norm"": true, ""batch_size"": 64, ""dropout"": 0.3, ""hidden_dims"": [768, 384], ""learning_rate"": 0.0003, ""patience"": 12, ""weight_decay"": 0.0001}",0.4143302180685358,0.41607378129117256,0.3986352298997742,0.39512567025744477
+cremad,Karar Agaci,1536,none,"{""criterion"": ""entropy"", ""max_depth"": 8, ""min_samples_split"": 10}",0.3614,0.361,0.3496,0.3494
+meld,Gradient Boosting,1536,64,"{""learning_rate"": 0.1, ""max_depth"": 3}",0.2093,0.2072,0.2027,0.2068
+meld,Rastgele Orman,2304,64,"{""max_depth"": 16, ""max_features"": ""sqrt"", ""n_estimators"": 100}",0.2116,0.2146,0.2006,0.2004
+meld,KNN (Odev 1),768,128,"{""K"": 5}",0.2047,0.2063,0.1941,0.1938
+meld,Karar Agaci,768,128,"{""criterion"": ""gini"", ""max_depth"": 8, ""min_samples_split"": 10}",0.1465,0.1475,0.143,0.1463
