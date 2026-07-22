@@ -38,6 +38,11 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Keep the course-required root settings while ignoring other editor state.
+!/.vscode/
+/.vscode/*
+!/.vscode/settings.json
+
 # Keep the assignment-specific VS Code settings required by the course.
 !odev2/.vscode/
 !odev2/.vscode/settings.json
