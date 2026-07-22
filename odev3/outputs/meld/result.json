@@ -54,8 +54,9 @@
     "fmin": 20.0,
     "fmax": 8000.0,
     "top_db": 80.0,
+    "frame_strategy": "crop_pad",
     "vector_size": 4096,
-    "method": "librosa.feature.melspectrogram -> log dB -> 64x64 -> flatten",
+    "method": "librosa.feature.melspectrogram -> log dB -> 64x64 -> crop_pad -> flatten",
     "pca": false
   },
   "preprocessing": {
