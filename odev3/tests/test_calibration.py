@@ -9,10 +9,114 @@ from odev3.calibration import (
     classification_calibration_report,
     confidence_bin_statistics,
     expected_calibration_error,
+    fit_temperature,
     multiclass_brier_score,
     multiclass_negative_log_likelihood,
+    temperature_scale_probabilities,
     validate_probability_inputs,
+    validate_probability_matrix,
 )
+
+
+def test_validate_probability_matrix_does_not_require_labels() -> None:
+    probabilities = np.eye(6, dtype=np.float32)
+
+    probability_array = validate_probability_matrix(probabilities)
+
+    assert probability_array.dtype == np.float64
+    np.testing.assert_allclose(probability_array, probabilities)
+
+
+def test_temperature_scaling_controls_confidence_and_preserves_argmax() -> None:
+    probabilities = np.array(
+        [
+            [0.8, 0.04, 0.04, 0.04, 0.04, 0.04],
+            [0.05, 0.65, 0.1, 0.08, 0.07, 0.05],
+        ]
+    )
+
+    unchanged = temperature_scale_probabilities(probabilities, 1.0)
+    softened = temperature_scale_probabilities(probabilities, 2.0)
+    sharpened = temperature_scale_probabilities(probabilities, 0.5)
+
+    np.testing.assert_array_equal(unchanged, probabilities)
+    np.testing.assert_allclose(softened.sum(axis=1), 1.0)
+    np.testing.assert_allclose(sharpened.sum(axis=1), 1.0)
+    np.testing.assert_array_equal(
+        softened.argmax(axis=1),
+        probabilities.argmax(axis=1),
+    )
+    np.testing.assert_array_equal(
+        sharpened.argmax(axis=1),
+        probabilities.argmax(axis=1),
+    )
+    assert np.all(softened.max(axis=1) < probabilities.max(axis=1))
+    assert np.all(sharpened.max(axis=1) > probabilities.max(axis=1))
+
+
+@pytest.mark.parametrize('temperature', [0.0, -1.0, np.nan, np.inf, True, 'bad'])
+def test_temperature_scaling_rejects_invalid_temperature(
+    temperature: object,
+) -> None:
+    with pytest.raises(ValueError, match='positive finite'):
+        temperature_scale_probabilities(
+            np.eye(6),
+            temperature,  # type: ignore[arg-type]
+        )
+
+
+def test_fit_temperature_reduces_nll_for_overconfident_predictions() -> None:
+    predicted = np.arange(24) % 6
+    labels = predicted.copy()
+    labels[1::2] = (labels[1::2] + 1) % 6
+    probabilities = np.full((len(labels), 6), 0.01)
+    probabilities[np.arange(len(labels)), predicted] = 0.95
+
+    fit = fit_temperature(probabilities, labels)
+    scaled = temperature_scale_probabilities(
+        probabilities,
+        fit['temperature'],
+    )
+
+    assert fit['temperature'] > 1.0
+    assert fit['validation_nll_after'] < fit['validation_nll_before']
+    assert fit['validation_nll_after'] == pytest.approx(
+        multiclass_negative_log_likelihood(scaled, labels)
+    )
+    assert scaled.max(axis=1).mean() < probabilities.max(axis=1).mean()
+    assert json.loads(json.dumps(fit)) == fit
+
+
+def test_fit_temperature_prefers_one_when_all_candidates_tie() -> None:
+    probabilities = np.full((12, 6), 1.0 / 6.0)
+    labels = np.tile(np.arange(6), 2)
+
+    fit = fit_temperature(probabilities, labels)
+
+    assert fit['temperature'] == pytest.approx(1.0)
+    assert fit['validation_nll_improvement'] == pytest.approx(0.0)
+
+
+@pytest.mark.parametrize(
+    'kwargs',
+    [
+        {'minimum': 0.0},
+        {'minimum': 1.0},
+        {'maximum': 1.0},
+        {'maximum': np.inf},
+        {'coarse_steps': 20},
+        {'fine_steps': True},
+    ],
+)
+def test_fit_temperature_rejects_invalid_search_settings(
+    kwargs: dict[str, object],
+) -> None:
+    with pytest.raises(ValueError):
+        fit_temperature(
+            np.eye(6),
+            np.arange(6),
+            **kwargs,  # type: ignore[arg-type]
+        )
 
 
 def test_validate_probability_inputs_returns_aligned_arrays() -> None:

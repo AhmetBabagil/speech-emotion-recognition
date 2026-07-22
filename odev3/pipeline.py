@@ -15,7 +15,11 @@ import numpy as np
 import pandas as pd
 import torch
 
-from odev3.calibration import classification_calibration_report
+from odev3.calibration import (
+    classification_calibration_report,
+    fit_temperature,
+    temperature_scale_probabilities,
+)
 from odev3.dataset import FeatureStandardizer, load_feature_matrix
 from odev3.features_melspec import DEFAULT_CONFIG, MelSpecConfig
 from odev3.model import MLP, MLPConfig, count_parameters
@@ -34,6 +38,7 @@ from ser.utils import ensure_dir, get_device, get_logger, set_seed
 
 log = get_logger('odev3.mlp')
 SEED = 42
+CORPUS_DISPLAY_NAMES = {'cremad': 'CREMA-D', 'meld': 'MELD'}
 
 
 def _json_default(value: Any) -> Any:
@@ -349,6 +354,73 @@ def _plot_history(history: list[dict[str, Any]], path: str | Path, title: str) -
     plt.close(fig)
 
 
+def _plot_reliability(
+    before: dict[str, Any],
+    after: dict[str, Any],
+    path: str | Path,
+    title: str,
+) -> None:
+    import matplotlib
+
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
+    def nonempty_series(report: dict[str, Any]) -> tuple[list[float], list[float]]:
+        entries = [entry for entry in report['bins'] if entry['count'] > 0]
+        return (
+            [float(entry['mean_confidence']) for entry in entries],
+            [float(entry['accuracy']) for entry in entries],
+        )
+
+    raw_confidence, raw_accuracy = nonempty_series(before)
+    scaled_confidence, scaled_accuracy = nonempty_series(after)
+    fig, axes = plt.subplots(1, 2, figsize=(11.0, 4.6))
+
+    axes[0].plot([0.0, 1.0], [0.0, 1.0], '--', color='0.45', label='İdeal')
+    axes[0].plot(
+        raw_confidence,
+        raw_accuracy,
+        'o-',
+        label=f'Ham (ECE={before["expected_calibration_error"]:.3f})',
+    )
+    axes[0].plot(
+        scaled_confidence,
+        scaled_accuracy,
+        's-',
+        label=f'Ölçekli (ECE={after["expected_calibration_error"]:.3f})',
+    )
+    axes[0].set_xlim(0.0, 1.0)
+    axes[0].set_ylim(0.0, 1.0)
+    axes[0].set_xlabel('Ortalama güven')
+    axes[0].set_ylabel('Gerçek doğruluk')
+    axes[0].set_title('Güvenilirlik eğrisi')
+    axes[0].grid(alpha=0.25)
+    axes[0].legend()
+
+    indices = np.arange(int(before['num_bins']))
+    width = 0.38
+    raw_counts = [int(entry['count']) for entry in before['bins']]
+    scaled_counts = [int(entry['count']) for entry in after['bins']]
+    labels = [
+        f'{entry["lower"]:.1f}–{entry["upper"]:.1f}'
+        for entry in before['bins']
+    ]
+    axes[1].bar(indices - width / 2, raw_counts, width, label='Ham')
+    axes[1].bar(indices + width / 2, scaled_counts, width, label='Ölçekli')
+    axes[1].set_xticks(indices, labels, rotation=45, ha='right')
+    axes[1].set_xlabel('Güven aralığı')
+    axes[1].set_ylabel('Örnek sayısı')
+    axes[1].set_title('Güven dağılımı')
+    axes[1].legend()
+
+    fig.suptitle(title)
+    fig.tight_layout()
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, dpi=160)
+    plt.close(fig)
+
+
 def _validation_row(
     trial_id: int,
     search_stage: str,
@@ -636,6 +708,20 @@ def run_corpus(
     model.load_state_dict(best_bundle['state_dict'])
     model.to(device)
 
+    _, _, validation_probabilities = evaluate_arrays(
+        model,
+        validation_features,
+        validation_labels,
+        class_weights=class_weights,
+        device=device,
+        batch_size=max(best_config.batch_size, 256),
+        num_workers=loader_workers,
+    )
+    temperature_fit = fit_temperature(
+        validation_probabilities,
+        validation_labels,
+    )
+
     # This is the first point at which held-out test records are loaded or used.
     test_features, test_labels = load_feature_matrix(
         test_frame,
@@ -668,6 +754,42 @@ def run_corpus(
         test_labels,
         bins=10,
     )
+    temperature = float(temperature_fit['temperature'])
+    calibrated_validation_probabilities = temperature_scale_probabilities(
+        validation_probabilities,
+        temperature,
+    )
+    calibrated_probabilities = temperature_scale_probabilities(
+        probabilities,
+        temperature,
+    )
+    calibrated_predictions = calibrated_probabilities.argmax(axis=1)
+    if not np.array_equal(calibrated_predictions, predictions):
+        raise RuntimeError('Temperature scaling changed predicted class indices.')
+    temperature_scaling = {
+        'fit': temperature_fit,
+        'validation': {
+            'before': classification_calibration_report(
+                validation_probabilities,
+                validation_labels,
+                bins=10,
+            ),
+            'after': classification_calibration_report(
+                calibrated_validation_probabilities,
+                validation_labels,
+                bins=10,
+            ),
+        },
+        'test': {
+            'before': test_calibration,
+            'after': classification_calibration_report(
+                calibrated_probabilities,
+                test_labels,
+                bins=10,
+            ),
+        },
+        'class_predictions_preserved': True,
+    }
 
     prediction_frame = test_frame[
         ['path', 'speaker', 'emotion', 'label_idx']
@@ -677,16 +799,22 @@ def run_corpus(
         CANONICAL_EMOTIONS[int(value)] for value in predictions
     ]
     prediction_frame['confidence'] = confidences
+    prediction_frame['calibrated_confidence'] = calibrated_probabilities.max(axis=1)
     for index, emotion in enumerate(CANONICAL_EMOTIONS):
         prediction_frame[f'prob_{emotion}'] = probabilities[:, index]
+        prediction_frame[f'calibrated_prob_{emotion}'] = calibrated_probabilities[
+            :, index
+        ]
     prediction_frame.to_csv(corpus_dir / 'test_predictions.csv', index=False)
     uncertainty_path = corpus_dir / 'test_uncertainty.json'
     _write_json(uncertainty_path, test_uncertainty)
     calibration_path = corpus_dir / 'test_calibration.json'
     _write_json(calibration_path, test_calibration)
+    temperature_scaling_path = corpus_dir / 'temperature_scaling.json'
+    _write_json(temperature_scaling_path, temperature_scaling)
 
     checkpoint = {
-        'schema_version': 1,
+        'schema_version': 2,
         'assignment': 3,
         'corpus': corpus,
         'model_type': 'PyTorch MLP from scratch',
@@ -702,6 +830,11 @@ def run_corpus(
         'seed': int(best_bundle['row']['seed']),
         'selection_metric': 'validation macro-F1',
         'best_epoch': int(best_bundle['row']['best_epoch']),
+        'probability_calibration': {
+            'method': 'temperature scaling',
+            'temperature': temperature,
+            'fitted_on': 'validation probabilities',
+        },
     }
     torch.save(checkpoint, corpus_dir / 'best_model.pt')
 
@@ -710,12 +843,19 @@ def run_corpus(
     _plot_history(
         best_bundle['history'],
         corpus_dir / 'best_training_history.png',
-        f'{corpus.upper()} - en iyi MLP eğitim süreci',
+        f'{CORPUS_DISPLAY_NAMES.get(corpus, corpus.upper())} - en iyi MLP eğitim süreci',
     )
     _plot_confusion(
         test_metrics['confusion_matrix'],
         corpus_dir / 'test_confusion_matrix.png',
-        f'{corpus.upper()} - MLP test karmaşıklık matrisi',
+        f'{CORPUS_DISPLAY_NAMES.get(corpus, corpus.upper())} - MLP test karmaşıklık matrisi',
+    )
+    reliability_path = corpus_dir / 'test_reliability_diagram.png'
+    _plot_reliability(
+        temperature_scaling['test']['before'],
+        temperature_scaling['test']['after'],
+        reliability_path,
+        f'{CORPUS_DISPLAY_NAMES.get(corpus, corpus.upper())} - test olasılık kalibrasyonu',
     )
 
     stability_summary = None
@@ -793,6 +933,7 @@ def run_corpus(
         'test': test_metrics,
         'test_uncertainty': test_uncertainty,
         'test_calibration': test_calibration,
+        'temperature_scaling': temperature_scaling,
         'artifacts': {
             'model': str(corpus_dir / 'best_model.pt'),
             'validation_results': str(corpus_dir / 'validation_results.csv'),
@@ -801,6 +942,8 @@ def run_corpus(
             'predictions': str(corpus_dir / 'test_predictions.csv'),
             'uncertainty': str(uncertainty_path),
             'calibration': str(calibration_path),
+            'temperature_scaling': str(temperature_scaling_path),
+            'reliability_diagram': str(reliability_path),
             'search_state': str(state_path),
         },
     }
@@ -811,6 +954,15 @@ def run_corpus(
         test_metrics['accuracy'],
         test_metrics['balanced_accuracy'],
         test_metrics['macro_f1'],
+    )
+    log.info(
+        '[%s] CALIBRATION | T=%.4f val-NLL %.4f->%.4f test-ECE %.4f->%.4f',
+        corpus,
+        temperature,
+        temperature_fit['validation_nll_before'],
+        temperature_fit['validation_nll_after'],
+        test_calibration['expected_calibration_error'],
+        temperature_scaling['test']['after']['expected_calibration_error'],
     )
     return result
 

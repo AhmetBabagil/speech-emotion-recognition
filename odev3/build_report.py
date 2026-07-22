@@ -403,10 +403,10 @@ def _execution_blocks(output_root: Path, results: dict[str, dict[str, Any]]) -> 
         ('odev3/model.py', 'Hazır model kullanmadan yapılandırılabilir PyTorch MLP ağını kurar.'),
         ('odev3/training.py', 'Ağırlıklı çapraz entropi, AdamW, erken durdurma ve metrik hesaplamalarını gerçekleştirir.'),
         ('odev3/uncertainty.py', 'Held-out sınıflandırma metrikleri için sınıf-korumalı bootstrap güven aralıklarını hesaplar.'),
-        ('odev3/calibration.py', 'Test olasılıklarından NLL, Brier, ECE ve güven aralığı özetlerini üretir.'),
+        ('odev3/calibration.py', 'NLL, Brier ve ECE ölçer; validation olasılıklarında sıcaklık katsayısını öğrenip olasılıkları ölçekler.'),
         ('odev3/search_space.py', '16 temel tarama adayını ve kazanan çevresindeki 14 yerel adayı üretir.'),
         ('odev3/feature_ablation.py', '64/80/96 Mel, 64/96 kare ve crop/resize temsillerini yalnız geçerleme setinde karşılaştırır.'),
-        ('odev3/pipeline.py', 'Speaker-independent bölmeleri, resume durumunu, model kaydını, tahminleri, belirsizliği ve kalibrasyonu yönetir.'),
+        ('odev3/pipeline.py', 'Speaker-independent bölmeleri, resume durumunu, model kaydını, tahminleri, belirsizliği ve validation-temelli kalibrasyonu yönetir.'),
         ('odev3/build_report.py', 'Gerçek deney çıktılarından bu HTML ve DOCX raporlarını üretir.'),
     )
     artifact_rows = []
@@ -418,8 +418,10 @@ def _execution_blocks(output_root: Path, results: dict[str, dict[str, Any]]) -> 
             ('best_training_history.csv', 'Seçilen koşunun epoch geçmişi'),
             ('test_predictions.csv', 'Test örneği tahmin ve olasılıkları'),
             ('test_uncertainty.json', 'Test metriklerinin %95 bootstrap güven aralıkları'),
-            ('test_calibration.json', 'NLL, Brier, ECE ve güven aralığı kalibrasyon özeti'),
+            ('test_calibration.json', 'Ham test olasılıklarının NLL, Brier ve ECE özeti'),
+            ('temperature_scaling.json', 'Validation’da öğrenilen sıcaklık ile ham/ölçekli karşılaştırma'),
             ('test_confusion_matrix.png', 'Normalize test karmaşıklık matrisi'),
+            ('test_reliability_diagram.png', 'Ham ve ölçekli test güvenilirlik diyagramı'),
             ('result.json', 'Bölme, yöntem, model ve metrik özeti'),
         ):
             path = corpus_dir / name
@@ -928,20 +930,28 @@ def _calibration_rows(
 ) -> tuple[tuple[Any, ...], ...]:
     rows = []
     for corpus, result in results.items():
-        calibration = result.get('test_calibration')
-        if not calibration:
+        scaling = result.get('temperature_scaling')
+        if not scaling:
             continue
+        fit = scaling['fit']
+        before = scaling['test']['before']
+        after = scaling['test']['after']
         rows.append(
             (
                 DISPLAY[corpus],
-                calibration['num_bins'],
-                calibration['negative_log_likelihood'],
-                calibration['multiclass_brier_score'],
-                calibration['expected_calibration_error'],
-                calibration['maximum_calibration_error'],
-                calibration['mean_confidence'],
-                calibration['accuracy'],
-                calibration['confidence_minus_accuracy'],
+                fit['temperature'],
+                f'{fit["validation_nll_before"]:.4f} → '
+                f'{fit["validation_nll_after"]:.4f}',
+                f'{before["negative_log_likelihood"]:.4f} → '
+                f'{after["negative_log_likelihood"]:.4f}',
+                f'{before["multiclass_brier_score"]:.4f} → '
+                f'{after["multiclass_brier_score"]:.4f}',
+                f'{before["expected_calibration_error"]:.4f} → '
+                f'{after["expected_calibration_error"]:.4f}',
+                f'{before["mean_confidence"]:.4f} → '
+                f'{after["mean_confidence"]:.4f}',
+                after['accuracy'],
+                scaling['class_predictions_preserved'],
             )
         )
     return tuple(rows)
@@ -950,17 +960,27 @@ def _calibration_rows(
 def _calibration_analysis(results: dict[str, dict[str, Any]]) -> str:
     findings = []
     for corpus, result in results.items():
-        calibration = result.get('test_calibration')
-        if not calibration:
+        scaling = result.get('temperature_scaling')
+        if not scaling:
             continue
-        gap = float(calibration['confidence_minus_accuracy'])
-        direction = 'aşırı güvenlidir' if gap > 0.0 else 'eksik güvenlidir'
+        fit = scaling['fit']
+        before = scaling['test']['before']
+        after = scaling['test']['after']
+        validation_before = scaling['validation']['before']
+        validation_after = scaling['validation']['after']
         findings.append(
-            f'{DISPLAY[corpus]} modelinin ortalama güveni '
-            f'{calibration["mean_confidence"]:.4f}, doğruluğu '
-            f'{calibration["accuracy"]:.4f} ve farkı {gap:+.4f} olduğundan model '
-            f'{direction}; ECE={calibration["expected_calibration_error"]:.4f} '
-            f'olarak ölçülmüştür.'
+            f'{DISPLAY[corpus]} için validation NLL ile öğrenilen '
+            f'T={fit["temperature"]:.4f}, test NLL değerini '
+            f'{before["negative_log_likelihood"]:.4f}’ten '
+            f'{after["negative_log_likelihood"]:.4f}’e ve ECE değerini '
+            f'{before["expected_calibration_error"]:.4f}’ten '
+            f'{after["expected_calibration_error"]:.4f}’e düşürmüştür. '
+            f'Ortalama güven {before["mean_confidence"]:.4f}’ten '
+            f'{after["mean_confidence"]:.4f}’e inerken doğruluk '
+            f'{after["accuracy"]:.4f} ve sınıf tahminleri korunmuştur. '
+            f'Validation ECE {validation_before["expected_calibration_error"]:.4f} '
+            f'→ {validation_after["expected_calibration_error"]:.4f} olmuştur; '
+            'optimizasyon hedefinin ECE değil NLL olduğu özellikle not edilmiştir.'
         )
     return ' '.join(findings)
 
@@ -1071,22 +1091,42 @@ def _test_blocks(output_root: Path, results: dict[str, dict[str, Any]]) -> list[
                 Heading(3, 'Held-out Test Olasılık Kalibrasyonu'),
                 TableBlock(
                     (
-                        'Veri seti', 'Bin', 'NLL', 'Brier', 'ECE', 'Maks. CE',
-                        'Ort. güven', 'Doğ.', 'Güven−doğ.',
+                        'Veri seti', 'T', 'Val NLL ham→ölç.',
+                        'Test NLL ham→ölç.', 'Brier ham→ölç.',
+                        'ECE ham→ölç.', 'Ort. güven ham→ölç.', 'Doğ.',
+                        'Karar korundu',
                     ),
                     calibration_rows,
-                    'Nihai MLP test olasılıklarının kalibrasyon sonuçları',
+                    'Validation’da öğrenilen sıcaklıkla olasılık kalibrasyonu',
                 ),
                 Paragraph(_calibration_analysis(results)),
                 Paragraph(
-                    'Kalibrasyon, model ve hiperparametre seçimi tamamlandıktan '
-                    'sonra kaydedilen held-out test olasılıklarında hesaplanmıştır. '
-                    'ECE, en yüksek sınıf olasılığına göre 10 eşit genişlikli '
-                    'bin kullanır. Temperature scaling gibi test sonucuna göre '
-                    'sonradan olasılık düzeltmesi uygulanmamıştır.'
+                    'Sıcaklık katsayısı, model ve hiperparametre seçimi bittikten '
+                    'sonra yalnız validation olasılıklarında 0.25–10 aralığında '
+                    'iki aşamalı logaritmik aramayla NLL en aza indirilerek '
+                    'öğrenilmiştir. Kilitli test etiketleri sıcaklık seçiminde '
+                    'kullanılmamış; öğrenilen tek katsayı test olasılıklarına bir '
+                    'kez uygulanmıştır. T>1 dağılımı yumuşatır; sınıf sıralamasını '
+                    've dolayısıyla accuracy/macro-F1 değerlerini değiştirmez. '
+                    'ECE, en yüksek sınıf olasılığına göre 10 eşit genişlikli bin '
+                    'ile hem ham hem ölçekli olasılıklarda raporlanmıştır.'
                 ),
             ]
         )
+        for corpus, result in results.items():
+            scaling = result.get('temperature_scaling')
+            if not scaling:
+                continue
+            before_ece = scaling['test']['before']['expected_calibration_error']
+            after_ece = scaling['test']['after']['expected_calibration_error']
+            blocks.append(
+                ImageBlock(
+                    output_root / corpus / 'test_reliability_diagram.png',
+                    f'{DISPLAY[corpus]} ham ve ölçekli güvenilirlik diyagramı',
+                    f'{DISPLAY[corpus]} held-out test güvenilirlik diyagramı: '
+                    f'ECE {before_ece:.4f} → {after_ece:.4f}.',
+                )
+            )
     blocks.append(
         TableBlock(
             ('Veri seti', 'Sınıf', 'Precision', 'Recall', 'F1', 'Destek'),
@@ -1135,7 +1175,10 @@ def _conclusion_blocks(
             'tamamlanmıştır. Her veri kümesi için bağımsız, sıfırdan PyTorch '
             'MLP modeli; train-only normalizasyon; sınıf ağırlıklı kayıp; erken '
             'durdurma; kaydedilmiş checkpoint; test tahminleri, karmaşıklık '
-            'matrisi, bootstrap belirsizliği ve kalibrasyon özeti üretilmiştir.'
+            'matrisi, bootstrap belirsizliği, validation-temelli temperature '
+            'scaling ve güvenilirlik diyagramları üretilmiştir. Ölçekleme her iki '
+            'veri kümesinde test NLL, Brier ve ECE değerlerini düşürmüş; sınıf '
+            'tahminlerini ve sınıflandırma metriklerini değiştirmemiştir.'
         ),
         Heading(3, 'İleride Yapılacaklar'),
         BulletList(
@@ -1145,7 +1188,7 @@ def _conclusion_blocks(
                 'Seed duyarlılığını azaltmak için daha fazla tekrar ve doğrulama temelli olasılık ortalamalı MLP ensemble araştırılması.',
                 'CREMA-D’de 96×64 crop-pad adayının küçük validation kazancının çoklu seed koşularıyla doğrulanması.',
                 'MELD için sonraki proje aşamalarında konuşma bağlamı ve metin bilgisinin, ödev kısıtlarına uygun ayrı bir deney olarak değerlendirilmesi.',
-                'Aşırı güveni azaltmak için yalnız validation logitlerinde öğrenilen temperature scaling ve güvenilirlik diyagramı denenmesi.',
+                'Validation NLL hedefli tek sıcaklık katsayısının classwise ECE, adaptive ECE ve yalnız validation üzerinde seçilecek alternatif kalibrasyon yöntemleriyle karşılaştırılması.',
                 'Hata örneklerinin konuşmacı ve süre bazında incelenmesi ve sınıf bazlı veri artırımı.',
             )
         ),
@@ -1161,7 +1204,7 @@ def _conclusion_blocks(
                 ('Tüm temel MLP hiperparametreleri denendi', True, 'validation_results.csv tabloları'),
                 ('En iyi modeller kaydedildi', True, 'cremad/meld best_model.pt'),
                 ('Held-out test ve karmaşıklık matrisi verildi', True, 'test_predictions.csv ve PNG'),
-                ('Test belirsizliği ve kalibrasyonu raporlandı', True, 'test_uncertainty.json ve test_calibration.json'),
+                ('Test belirsizliği ve validation-temelli kalibrasyon raporlandı', True, 'test_uncertainty.json, temperature_scaling.json ve reliability PNG'),
                 ('Önceki aşama modelleriyle karşılaştırıldı', True, 'model_comparison.csv'),
             ),
         ),

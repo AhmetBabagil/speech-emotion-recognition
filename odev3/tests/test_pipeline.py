@@ -75,6 +75,35 @@ def test_diagnostic_limit_is_stratified_and_deterministic() -> None:
     assert first['row_id'].tolist() == second['row_id'].tolist()
 
 
+def test_reliability_plot_writes_nonempty_png(tmp_path: Path) -> None:
+    labels = np.tile(np.arange(6), 2)
+    probabilities = np.full((len(labels), 6), 0.04)
+    probabilities[np.arange(len(labels)), labels] = 0.8
+    scaled = pipeline_module.temperature_scale_probabilities(
+        probabilities,
+        2.0,
+    )
+    before = pipeline_module.classification_calibration_report(
+        probabilities,
+        labels,
+    )
+    after = pipeline_module.classification_calibration_report(
+        scaled,
+        labels,
+    )
+    output_path = tmp_path / 'reliability.png'
+
+    pipeline_module._plot_reliability(
+        before,
+        after,
+        output_path,
+        'Test reliability',
+    )
+
+    assert output_path.read_bytes().startswith(b'\x89PNG\r\n\x1a\n')
+    assert output_path.stat().st_size > 1_000
+
+
 def test_legacy_search_signature_defaults_to_crop_pad() -> None:
     legacy = {'feature_config': {'n_mels': 64, 'n_frames': 64}}
     current = {
@@ -209,7 +238,12 @@ def test_test_fold_is_untouched_until_validation_search_finishes(
         )
 
     def fake_evaluate(model, features, labels, **kwargs):
-        events.append('evaluate:test')
+        fold = (
+            'test'
+            if any(event.endswith('test') for event in events)
+            else 'validation'
+        )
+        events.append(f'evaluate:{fold}')
         return 0.2, _metrics(0.8), np.eye(6, dtype=np.float32)[labels]
 
     monkeypatch.setattr(pipeline_module, 'load_feature_matrix', fake_load)
@@ -253,6 +287,7 @@ def test_test_fold_is_untouched_until_validation_search_finishes(
         'train',
         'train',
         'train',
+        'evaluate:validation',
         'load:cremad test',
         'evaluate:test',
     ]
@@ -298,6 +333,30 @@ def test_test_fold_is_untouched_until_validation_search_finishes(
     with calibration_path.open(encoding='utf-8') as handle:
         saved_calibration = json.load(handle)
     assert saved_calibration == result['test_calibration']
+    scaling = result['temperature_scaling']
+    assert scaling['fit']['fitted_on'] == 'validation probabilities'
+    assert scaling['fit']['temperature'] > 0.0
+    assert scaling['class_predictions_preserved'] is True
+    assert scaling['test']['after']['accuracy'] == pytest.approx(1.0)
+    assert scaling['test']['after']['expected_calibration_error'] == pytest.approx(
+        0.0
+    )
+    temperature_path = Path(result['artifacts']['temperature_scaling'])
+    assert temperature_path.is_file()
+    with temperature_path.open(encoding='utf-8') as handle:
+        saved_scaling = json.load(handle)
+    assert saved_scaling == scaling
+    assert Path(result['artifacts']['reliability_diagram']).is_file()
+    predictions = pd.read_csv(result['artifacts']['predictions'])
+    raw_columns = [f'prob_{emotion}' for emotion in CANONICAL_EMOTIONS]
+    calibrated_columns = [
+        f'calibrated_prob_{emotion}' for emotion in CANONICAL_EMOTIONS
+    ]
+    np.testing.assert_array_equal(
+        predictions[raw_columns].to_numpy().argmax(axis=1),
+        predictions[calibrated_columns].to_numpy().argmax(axis=1),
+    )
+    assert 'calibrated_confidence' in predictions
     checkpoint_path = tmp_path / 'outputs' / 'cremad' / 'best_model.pt'
     assert checkpoint_path.is_file()
 
@@ -309,6 +368,10 @@ def test_test_fold_is_untouched_until_validation_search_finishes(
     assert logits.shape == (2, 6)
     assert standardizer.mean.shape == (6,)
     assert checkpoint['corpus'] == 'cremad'
+    assert checkpoint['schema_version'] == 2
+    assert checkpoint['probability_calibration']['temperature'] == pytest.approx(
+        scaling['fit']['temperature']
+    )
 
     events.clear()
     resumed_result = pipeline_module.run_corpus(
@@ -325,6 +388,7 @@ def test_test_fold_is_untouched_until_validation_search_finishes(
     assert events == [
         'load:cremad eğitim',
         'load:cremad geçerleme',
+        'evaluate:validation',
         'load:cremad test',
         'evaluate:test',
     ]

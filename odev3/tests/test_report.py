@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from odev3.build_report import (
     Heading,
     LinkList,
@@ -27,8 +29,11 @@ def test_report_helpers_load_expanded_ablation_and_calibration() -> None:
     assert {row[3] for row in ablation_rows} == {64, 80, 96}
     assert sum(bool(row[-1]) for row in ablation_rows) == 2
     assert len(calibration_rows) == 2
-    assert calibration_rows[0][4] == 0.24550337379223833
-    assert calibration_rows[1][4] == 0.10489513621080754
+    assert calibration_rows[0][1] == pytest.approx(2.0095735401)
+    assert calibration_rows[1][1] == pytest.approx(3.2743607877)
+    assert calibration_rows[0][5] == '0.2455 → 0.0575'
+    assert calibration_rows[1][5] == '0.1049 → 0.0132'
+    assert all(row[-1] is True for row in calibration_rows)
 
 
 def test_html_renderer_preserves_turkish_text_and_escapes_content(
@@ -111,10 +116,14 @@ def test_final_report_builds_from_complete_experiment_artifacts(
     assert '2000 tekrarlı percentile bootstrap' in paragraph_text
     assert 'Held-out Test Olasılık Kalibrasyonu' in paragraph_text
     assert '0.2455' in html
+    assert '0.2455 → 0.0575' in html
+    assert '0.1049 → 0.0132' in html
+    assert 'optimizasyon hedefinin ECE değil NLL olduğu' in paragraph_text
+    assert html.count('<img src=') == 6
     assert '96×64 crop-pad macro-F1=0.4707' in paragraph_text
     assert '16 özellik ablation koşusu' in paragraph_text
     assert 'temperature scaling' in paragraph_text
     assert 'class="missing"' not in html
     assert html.count('<table>') == 19
     assert len(document.tables) == 19
-    assert len(document.inline_shapes) == 4
+    assert len(document.inline_shapes) == 6
