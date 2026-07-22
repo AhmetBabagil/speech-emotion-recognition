@@ -399,6 +399,7 @@ def _execution_blocks(
     output_root: Path,
     results: dict[str, dict[str, Any]],
     stability_root: Path,
+    effect_root: Path,
 ) -> list[ReportBlock]:
     files = (
         ('odev3/run_experiment.py', 'Tüm veri kümesi için tarama, yerel iyileştirme, çoklu seed doğrulaması ve tek seferlik test değerlendirmesini çalıştırır.'),
@@ -411,6 +412,7 @@ def _execution_blocks(
         ('odev3/search_space.py', '16 temel tarama adayını ve kazanan çevresindeki 14 yerel adayı üretir.'),
         ('odev3/feature_ablation.py', '64/80/96 Mel, 64/96 kare ve crop/resize temsillerini yalnız geçerleme setinde karşılaştırır.'),
         ('odev3/feature_stability.py', 'En güçlü iki Mel temsilini seed 42/143/244 ile yalnız geçerleme setinde yeniden eğitip ortalama ve sapmayı ölçer.'),
+        ('odev3/hyperparameter_effects.py', 'Tarama ve iyileştirme koşularını parametre değerlerine göre gruplayıp koşu sayısı, ortalama, sapma ve performans farklarını özetler.'),
         ('odev3/pipeline.py', 'Speaker-independent bölmeleri, resume durumunu, model kaydını, tahminleri, belirsizliği ve validation-temelli kalibrasyonu yönetir.'),
         ('odev3/build_report.py', 'Gerçek deney çıktılarından bu HTML ve DOCX raporlarını üretir.'),
     )
@@ -430,6 +432,14 @@ def _execution_blocks(
             ('result.json', 'Bölme, yöntem, model ve metrik özeti'),
         ):
             path = corpus_dir / name
+            artifact_rows.append(
+                (DISPLAY[corpus], path.as_posix(), purpose, _artifact_status(path))
+            )
+        for name, purpose in (
+            ('parameter_effects.csv', 'Her parametre değeri için validation macro-F1 dağılımı'),
+            ('parameter_effect_overview.csv', 'En güçlü ve zayıf betimsel parametre grupları'),
+        ):
+            path = effect_root / corpus / name
             artifact_rows.append(
                 (DISPLAY[corpus], path.as_posix(), purpose, _artifact_status(path))
             )
@@ -461,6 +471,11 @@ def _execution_blocks(
             'Çoklu-seed özellik doğrulaması: python -m '
             'odev3.feature_stability --corpora cremad meld --max-epochs 60 '
             '--seeds 42 143 244 --device cpu --feature-workers 4'
+        ),
+        Paragraph(
+            'Hiperparametre etki özeti: python -m odev3.hyperparameter_effects '
+            '--corpora cremad meld --output-root odev3/outputs '
+            '--analysis-root odev3/hyperparameter_effects'
         ),
         Paragraph('Rapor: python odev3/build_report.py --output-root odev3/outputs'),
         Heading(3, 'Üretilen Temel Dosyalar'),
@@ -931,6 +946,76 @@ def _trial_metric_rows(frame: pd.DataFrame) -> tuple[tuple[Any, ...], ...]:
     return tuple(rows)
 
 
+def _hyperparameter_effect_rows(
+    effect_root: Path,
+) -> tuple[tuple[Any, ...], ...]:
+    rows = []
+    for corpus in ('cremad', 'meld'):
+        path = effect_root / corpus / 'parameter_effect_overview.csv'
+        if not path.is_file():
+            continue
+        frame = pd.read_csv(path).sort_values('parameter_order')
+        for row in frame.itertuples(index=False):
+            rows.append(
+                (
+                    DISPLAY[corpus],
+                    row.parameter_label,
+                    int(row.tested_value_count),
+                    row.best_value,
+                    int(row.best_runs),
+                    row.best_mean_macro_f1,
+                    row.worst_value,
+                    int(row.worst_runs),
+                    row.worst_mean_macro_f1,
+                    row.mean_macro_f1_spread,
+                    f'{int(row.minimum_group_runs)}–{int(row.maximum_group_runs)}',
+                )
+            )
+    return tuple(rows)
+
+
+def _hyperparameter_effect_findings(effect_root: Path) -> tuple[str, ...]:
+    summary_path = effect_root / 'summary.json'
+    if not summary_path.is_file():
+        return ()
+    summary = _read_json(summary_path)
+    total_configurations = sum(
+        int(item['configuration_trials'])
+        for item in summary.get('per_dataset', {}).values()
+    )
+    total_excluded = sum(
+        int(item['excluded_stability_trials'])
+        for item in summary.get('per_dataset', {}).values()
+    )
+    findings = [
+        f'Etki özeti, iki veri kümesindeki toplam {total_configurations} benzersiz '
+        'tarama/iyileştirme konfigürasyonunu kullanmıştır. Aynı yapıların seed '
+        f'tekrarı olan {total_excluded} stability satırı bu hesaba katılmamıştır.'
+    ]
+    for corpus in ('cremad', 'meld'):
+        overview_path = effect_root / corpus / 'parameter_effect_overview.csv'
+        if not overview_path.is_file():
+            continue
+        frame = pd.read_csv(overview_path)
+        strongest = frame.loc[frame['mean_macro_f1_spread'].idxmax()]
+        findings.append(
+            f'{DISPLAY[corpus]} için en geniş grup-ortalaması aralığı '
+            f'{strongest.parameter_label} değişkeninde görülmüştür: '
+            f'{strongest.best_value} (n={int(strongest.best_runs)}, '
+            f'macro-F1={strongest.best_mean_macro_f1:.4f}) ile '
+            f'{strongest.worst_value} (n={int(strongest.worst_runs)}, '
+            f'macro-F1={strongest.worst_mean_macro_f1:.4f}) arasındaki '
+            f'betimsel fark {strongest.mean_macro_f1_spread:.4f} değerindedir.'
+        )
+    findings.append(
+        'Arama dengeli tam faktöriyel değildir ve konfigürasyonlarda birden çok '
+        'parametre birlikte değişmektedir. Bu nedenle tablo izole nedensel etki '
+        'kanıtı değil, sonraki kontrollü deneyleri yönlendiren betimsel ilişki '
+        'olarak okunmalıdır; özellikle n=1 gruplar genellenmemelidir.'
+    )
+    return tuple(findings)
+
+
 def _stability_rows(
     results: dict[str, dict[str, Any]],
     validations: dict[str, pd.DataFrame],
@@ -970,6 +1055,7 @@ def _validation_blocks(
     output_root: Path,
     results: dict[str, dict[str, Any]],
     validations: dict[str, pd.DataFrame],
+    effect_root: Path,
 ) -> list[ReportBlock]:
     blocks: list[ReportBlock] = [
         Heading(2, 'Model Geçerleme'),
@@ -1017,6 +1103,33 @@ def _validation_blocks(
             ]
         )
         table_number += 2
+    effect_rows = _hyperparameter_effect_rows(effect_root)
+    if effect_rows:
+        blocks.extend(
+            [
+                Heading(3, 'Hiperparametrelerin Betimsel Performans İlişkileri'),
+                Paragraph(
+                    'Tarama ve yerel iyileştirme sonuçları her parametre değeri '
+                    'için ayrı gruplandırılmış; grup koşu sayısı, ortalama '
+                    'validation macro-F1 ve en güçlü–en zayıf grup farkı '
+                    'hesaplanmıştır.'
+                ),
+                TableBlock(
+                    (
+                        'Veri seti', 'Parametre', 'Değer', 'En güçlü grup',
+                        'n', 'Ort. F1', 'En zayıf grup', 'n', 'Ort. F1',
+                        'Fark', 'Grup n aralığı',
+                    ),
+                    effect_rows,
+                    f'Tablo {table_number}. Hiperparametre gruplarının betimsel validation ilişkileri',
+                ),
+                *(
+                    Paragraph(finding)
+                    for finding in _hyperparameter_effect_findings(effect_root)
+                ),
+            ]
+        )
+        table_number += 1
     blocks.extend(
         [
             Heading(3, 'Çoklu Seed Kararlılık Sonuçları'),
@@ -1346,6 +1459,7 @@ def _conclusion_blocks(
     results: dict[str, dict[str, Any]],
     ablation_root: Path,
     stability_root: Path,
+    effect_root: Path,
 ) -> list[ReportBlock]:
     total_trials = sum(int(result['num_trials']) for result in results.values())
     feature_trials = len(_ablation_rows(ablation_root))
@@ -1355,6 +1469,26 @@ def _conclusion_blocks(
         if (
             path := stability_root / corpus / 'feature_stability_runs.csv'
         ).is_file()
+    )
+    effect_summary_path = effect_root / 'summary.json'
+    effect_trials = 0
+    effect_excluded = 0
+    if effect_summary_path.is_file():
+        effect_summary = _read_json(effect_summary_path)
+        effect_trials = sum(
+            int(item['configuration_trials'])
+            for item in effect_summary.get('per_dataset', {}).values()
+        )
+        effect_excluded = sum(
+            int(item['excluded_stability_trials'])
+            for item in effect_summary.get('per_dataset', {}).values()
+        )
+    effect_sentence = (
+        f' Mevcut koşuların {effect_trials} benzersiz konfigürasyonu ayrıca '
+        'parametre değerlerine göre betimsel olarak gruplanmış; '
+        f'{effect_excluded} stability tekrarı bu analizden ayrılmıştır.'
+        if effect_trials
+        else ''
     )
     return [
         Heading(2, 'Sonuç ve İleride Yapılacaklar'),
@@ -1369,6 +1503,7 @@ def _conclusion_blocks(
             'scaling ve güvenilirlik diyagramları üretilmiştir. Ölçekleme her iki '
             'veri kümesinde test NLL, Brier ve ECE değerlerini düşürmüş; sınıf '
             'tahminlerini ve sınıflandırma metriklerini değiştirmemiştir.'
+            f'{effect_sentence}'
         ),
         Heading(3, 'İleride Yapılacaklar'),
         BulletList(
@@ -1391,6 +1526,7 @@ def _conclusion_blocks(
                 ('Sınıf dengesizliği ağırlıklı kayıpla ele alındı', True, 'training_class_weights'),
                 ('Erken durdurma uygulandı', True, '32 koşunun history/CSV kayıtları'),
                 ('Tüm temel MLP hiperparametreleri denendi', True, 'validation_results.csv tabloları'),
+                ('Hiperparametre ilişkileri koşu sayılarıyla incelendi', True, 'parameter_effects.csv ve parameter_effect_overview.csv'),
                 ('Özellik seçimi çoklu seed ile doğrulandı', True, 'feature_stability.csv ve üç-seed PNG'),
                 ('En iyi modeller kaydedildi', True, 'cremad/meld best_model.pt'),
                 ('Held-out test ve karmaşıklık matrisi verildi', True, 'test_predictions.csv ve PNG'),
@@ -1405,6 +1541,7 @@ def _build_report_blocks(
     output_root: Path,
     ablation_root: Path,
     stability_root: Path,
+    effect_root: Path,
 ) -> tuple[list[ReportBlock], bool]:
     summary, results, validations = _load_report_inputs(output_root)
     diagnostic = bool(summary.get('diagnostic_limit_per_split')) or summary.get(
@@ -1432,12 +1569,12 @@ def _build_report_blocks(
             )
         )
     blocks.extend(_access_blocks())
-    blocks.extend(_execution_blocks(output_root, results, stability_root))
+    blocks.extend(_execution_blocks(output_root, results, stability_root, effect_root))
     blocks.extend(_dataset_blocks(results))
     blocks.extend(_method_blocks(results, ablation_root, stability_root))
-    blocks.extend(_validation_blocks(output_root, results, validations))
+    blocks.extend(_validation_blocks(output_root, results, validations, effect_root))
     blocks.extend(_test_blocks(output_root, results))
-    blocks.extend(_conclusion_blocks(results, ablation_root, stability_root))
+    blocks.extend(_conclusion_blocks(results, ablation_root, stability_root, effect_root))
     return blocks, diagnostic
 
 
@@ -1446,6 +1583,7 @@ def build_report(
     output_root: str | Path = 'odev3/outputs',
     ablation_root: str | Path = 'odev3/feature_ablation',
     stability_root: str | Path = 'odev3/feature_stability',
+    effect_root: str | Path = 'odev3/hyperparameter_effects',
     html_path: str | Path | None = None,
     docx_path: str | Path | None = None,
 ) -> ReportPaths:
@@ -1456,6 +1594,7 @@ def build_report(
         output_root,
         Path(ablation_root),
         Path(stability_root),
+        Path(effect_root),
     )
     paths = _report_paths(output_root, diagnostic, html_path, docx_path)
     title = 'YAP 470 / BİL 570 – Proje İlerleme Raporu 3'
@@ -1469,6 +1608,7 @@ def main() -> None:
     parser.add_argument('--output-root', default='odev3/outputs')
     parser.add_argument('--ablation-root', default='odev3/feature_ablation')
     parser.add_argument('--stability-root', default='odev3/feature_stability')
+    parser.add_argument('--effect-root', default='odev3/hyperparameter_effects')
     parser.add_argument('--html')
     parser.add_argument('--docx')
     args = parser.parse_args()
@@ -1476,6 +1616,7 @@ def main() -> None:
         output_root=args.output_root,
         ablation_root=args.ablation_root,
         stability_root=args.stability_root,
+        effect_root=args.effect_root,
         html_path=args.html,
         docx_path=args.docx,
     )

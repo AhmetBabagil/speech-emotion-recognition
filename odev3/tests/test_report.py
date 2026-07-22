@@ -13,6 +13,7 @@ from odev3.build_report import (
     _ablation_rows,
     _calibration_rows,
     _feature_stability_rows,
+    _hyperparameter_effect_rows,
     _render_docx,
     _render_html,
     build_report,
@@ -26,6 +27,7 @@ def test_report_helpers_load_expanded_ablation_and_calibration() -> None:
     )
     calibration_rows = _calibration_rows(summary['per_dataset'])
     stability_rows = _feature_stability_rows(Path('odev3/feature_stability'))
+    effect_rows = _hyperparameter_effect_rows(Path('odev3/hyperparameter_effects'))
 
     assert len(ablation_rows) == 16
     assert {row[3] for row in ablation_rows} == {64, 80, 96}
@@ -40,6 +42,12 @@ def test_report_helpers_load_expanded_ablation_and_calibration() -> None:
     assert sum(bool(row[-1]) for row in stability_rows) == 2
     assert stability_rows[0][8] == '0.4644 ± 0.0063'
     assert stability_rows[2][8] == '0.2370 ± 0.0117'
+    assert len(effect_rows) == 16
+    assert effect_rows[0][0:2] == ('CREMA-D', 'Learning rate')
+    assert effect_rows[0][4] == 1
+    assert effect_rows[0][5] == pytest.approx(0.4684975243)
+    assert effect_rows[8][0:2] == ('MELD', 'Learning rate')
+    assert effect_rows[8][5] == pytest.approx(0.2414046227)
 
 
 def test_html_renderer_preserves_turkish_text_and_escapes_content(
@@ -104,6 +112,7 @@ def test_final_report_builds_from_complete_experiment_artifacts(
     paths = build_report(
         output_root='odev3/outputs',
         ablation_root='odev3/feature_ablation',
+        effect_root='odev3/hyperparameter_effects',
         html_path=html_path,
         docx_path=docx_path,
     )
@@ -137,8 +146,12 @@ def test_final_report_builds_from_complete_experiment_artifacts(
     assert 'Seed 42 ile yeniden eğitilen 4 aday' in paragraph_text
     assert 'maksimum mutlak fark 0.0000000000' in paragraph_text
     assert '12 çoklu-seed özellik doğrulama koşusu' in paragraph_text
+    assert 'Hiperparametrelerin Betimsel Performans İlişkileri' in paragraph_text
+    assert 'toplam 60 benzersiz tarama/iyileştirme konfigürasyonunu' in paragraph_text
+    assert 'izole nedensel etki kanıtı değil' in paragraph_text
+    assert 'n=1 gruplar genellenmemelidir' in paragraph_text
     assert 'temperature scaling' in paragraph_text
     assert 'class="missing"' not in html
-    assert html.count('<table>') == 20
-    assert len(document.tables) == 20
+    assert html.count('<table>') == 21
+    assert len(document.tables) == 21
     assert len(document.inline_shapes) == 8
