@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import hashlib
 import json
+import os
 from pathlib import Path
+import pickle
 import time
 from typing import Any
 
@@ -48,6 +51,135 @@ def _write_json(path: str | Path, payload: Any) -> None:
         json.dumps(payload, indent=2, ensure_ascii=False, default=_json_default),
         encoding='utf-8',
     )
+
+
+def _manifest_identity(path: str | Path) -> dict[str, Any]:
+    manifest_path = Path(path)
+    identity: dict[str, Any] = {'path': str(manifest_path.resolve())}
+    if manifest_path.is_file():
+        stat = manifest_path.stat()
+        identity.update({'size': stat.st_size, 'mtime_ns': stat.st_mtime_ns})
+    return identity
+
+
+def _search_signature(
+    *,
+    corpus: str,
+    manifest_path: str | Path,
+    grid_mode: str,
+    max_epochs: int,
+    feature_config: MelSpecConfig,
+    limit_per_split: int | None,
+    device: torch.device,
+    amp: bool,
+) -> dict[str, Any]:
+    return {
+        'corpus': corpus,
+        'manifest': _manifest_identity(manifest_path),
+        'grid_mode': grid_mode,
+        'max_epochs': max_epochs,
+        'feature_config': asdict(feature_config),
+        'limit_per_split': limit_per_split,
+        'device': str(device),
+        'amp': bool(amp and device.type == 'cuda'),
+        'seed': SEED,
+    }
+
+
+def _config_json(config: MLPConfig) -> str:
+    return json.dumps(config.to_dict(), sort_keys=True, separators=(',', ':'))
+
+
+def _config_id(config: MLPConfig) -> str:
+    return hashlib.sha1(_config_json(config).encode('utf-8')).hexdigest()[:12]
+
+
+def _trial_key(stage: str, config: MLPConfig, trial_seed: int) -> str:
+    config_json = _config_json(config)
+    return f'{stage}|{trial_seed}|{config_json}'
+
+
+def _serialize_best_bundle(bundle: dict[str, Any] | None) -> dict[str, Any] | None:
+    if bundle is None:
+        return None
+    return {
+        'row': bundle['row'],
+        'config': bundle['config'].to_dict(),
+        'history': bundle['history'],
+        'validation_metrics': bundle['validation_metrics'],
+        'state_dict': bundle['state_dict'],
+    }
+
+
+def _restore_best_bundle(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    if payload is None:
+        return None
+    return {
+        'row': payload['row'],
+        'config': MLPConfig.from_dict(payload['config']),
+        'history': payload['history'],
+        'validation_metrics': payload['validation_metrics'],
+        'state_dict': payload['state_dict'],
+    }
+
+
+def _save_search_state(
+    path: Path,
+    *,
+    signature: dict[str, Any],
+    rows: list[dict[str, Any]],
+    completed_keys: set[str],
+    best_bundle: dict[str, Any] | None,
+    refinement_base: MLPConfig | None,
+    stability_base: MLPConfig | None,
+) -> None:
+    payload = {
+        'schema_version': 2,
+        'signature': signature,
+        'rows': rows,
+        'completed_keys': sorted(completed_keys),
+        'best_bundle': _serialize_best_bundle(best_bundle),
+        'refinement_base': refinement_base.to_dict() if refinement_base else None,
+        'stability_base': stability_base.to_dict() if stability_base else None,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix('.tmp.pt')
+    torch.save(payload, temporary)
+    os.replace(temporary, path)
+
+
+def _load_search_state(
+    path: Path,
+    signature: dict[str, Any],
+) -> dict[str, Any] | None:
+    if not path.is_file():
+        return None
+    try:
+        try:
+            payload = torch.load(path, map_location='cpu', weights_only=True)
+        except TypeError:
+            payload = torch.load(path, map_location='cpu')
+    except (OSError, RuntimeError, ValueError, TypeError, pickle.UnpicklingError) as error:
+        log.warning('Ignoring unreadable search state %s: %s', path, error)
+        return None
+    if payload.get('schema_version') != 2 or payload.get('signature') != signature:
+        log.warning('Ignoring incompatible search state: %s', path)
+        return None
+    return {
+        'rows': list(payload.get('rows', [])),
+        'completed_keys': set(payload.get('completed_keys', [])),
+        'best_bundle': _restore_best_bundle(payload.get('best_bundle')),
+        'refinement_base': (
+            MLPConfig.from_dict(payload['refinement_base'])
+            if payload.get('refinement_base')
+            else None
+        ),
+        'stability_base': (
+            MLPConfig.from_dict(payload['stability_base'])
+            if payload.get('stability_base')
+            else None
+        ),
+    }
 
 
 def _splits_for(corpus: str, manifest_path: str | Path):
@@ -203,6 +335,7 @@ def _plot_history(history: list[dict[str, Any]], path: str | Path, title: str) -
 def _validation_row(
     trial_id: int,
     search_stage: str,
+    trial_seed: int,
     config: MLPConfig,
     outcome,
     elapsed_seconds: float,
@@ -211,6 +344,8 @@ def _validation_row(
     return {
         'trial': trial_id,
         'search_stage': search_stage,
+        'seed': trial_seed,
+        'config_id': _config_id(config),
         'batch_size': config.batch_size,
         'learning_rate': config.learning_rate,
         'patience': config.patience,
@@ -255,6 +390,7 @@ def run_corpus(
     loader_workers: int = 0,
     amp: bool = True,
     limit_per_split: int | None = None,
+    resume: bool = True,
 ) -> dict[str, Any]:
     '''Search on validation data, then evaluate the selected model once on test.'''
 
@@ -299,14 +435,51 @@ def run_corpus(
     class_weights = inverse_frequency_weights(train_labels, NUM_CLASSES)
 
     screening_candidates = search_space(grid_mode)
-    rows: list[dict[str, Any]] = []
-    best_bundle: dict[str, Any] | None = None
+    state_path = corpus_dir / 'search_state.pt'
+    signature = _search_signature(
+        corpus=corpus,
+        manifest_path=manifest_path,
+        grid_mode=grid_mode,
+        max_epochs=max_epochs,
+        feature_config=feature_config,
+        limit_per_split=limit_per_split,
+        device=device,
+        amp=amp,
+    )
+    saved_state = _load_search_state(state_path, signature) if resume else None
+    if saved_state:
+        rows: list[dict[str, Any]] = saved_state['rows']
+        completed_keys: set[str] = saved_state['completed_keys']
+        best_bundle: dict[str, Any] | None = saved_state['best_bundle']
+        refinement_base: MLPConfig | None = saved_state['refinement_base']
+        stability_base: MLPConfig | None = saved_state['stability_base']
+        log.info('[%s] resuming %d completed validation trials', corpus, len(rows))
+    else:
+        rows = []
+        completed_keys = set()
+        best_bundle = None
+        refinement_base = None
+        stability_base = None
     stage_counts: dict[str, int] = {}
 
-    def run_stage(stage: str, candidates: list[MLPConfig]) -> None:
+    def run_stage(
+        stage: str,
+        candidates: list[MLPConfig],
+        trial_seed: int = SEED,
+    ) -> None:
         nonlocal best_bundle
-        stage_counts[stage] = len(candidates)
+        stage_counts[stage] = stage_counts.get(stage, 0) + len(candidates)
         for stage_index, candidate in enumerate(candidates, start=1):
+            key = _trial_key(stage, candidate, trial_seed)
+            if key in completed_keys:
+                log.info(
+                    '[%s] skipping completed %s trial %d/%d',
+                    corpus,
+                    stage,
+                    stage_index,
+                    len(candidates),
+                )
+                continue
             trial_id = len(rows) + 1
             log.info(
                 '[%s] %s trial %d/%d | global trial %d | %s',
@@ -328,7 +501,7 @@ def run_corpus(
                 num_classes=NUM_CLASSES,
                 device=device,
                 max_epochs=max_epochs,
-                seed=SEED,
+                seed=trial_seed,
                 num_workers=loader_workers,
                 amp=amp,
             )
@@ -336,6 +509,7 @@ def run_corpus(
             row = _validation_row(
                 trial_id,
                 stage,
+                trial_seed,
                 candidate,
                 outcome,
                 elapsed,
@@ -368,6 +542,16 @@ def run_corpus(
                         for name, value in outcome.model.state_dict().items()
                     },
                 }
+            completed_keys.add(key)
+            _save_search_state(
+                state_path,
+                signature=signature,
+                rows=rows,
+                completed_keys=completed_keys,
+                best_bundle=best_bundle,
+                refinement_base=refinement_base,
+                stability_base=stability_base,
+            )
             del outcome
             if device.type == 'cuda':
                 torch.cuda.empty_cache()
@@ -379,13 +563,37 @@ def run_corpus(
     if grid_mode == 'report':
         if best_bundle is None:
             raise RuntimeError(f'Screening produced no valid trial for {corpus}.')
+        if refinement_base is None:
+            refinement_base = best_bundle['config']
+            _save_search_state(
+                state_path,
+                signature=signature,
+                rows=rows,
+                completed_keys=completed_keys,
+                best_bundle=best_bundle,
+                refinement_base=refinement_base,
+                stability_base=stability_base,
+            )
         refinement_candidates = refinement_space(
-            best_bundle['config'],
+            refinement_base,
             exclude=screening_candidates,
         )
         run_stage('refinement', refinement_candidates)
-
-    candidates = screening_candidates + refinement_candidates
+        if best_bundle is None:
+            raise RuntimeError(f'Refinement produced no valid trial for {corpus}.')
+        if stability_base is None:
+            stability_base = best_bundle['config']
+            _save_search_state(
+                state_path,
+                signature=signature,
+                rows=rows,
+                completed_keys=completed_keys,
+                best_bundle=best_bundle,
+                refinement_base=refinement_base,
+                stability_base=stability_base,
+            )
+        run_stage('stability', [stability_base], trial_seed=SEED + 101)
+        run_stage('stability', [stability_base], trial_seed=SEED + 202)
 
     if best_bundle is None:
         raise RuntimeError(f'No successful validation trial for {corpus}.')
@@ -450,7 +658,7 @@ def run_corpus(
         'standardizer_mean': torch.from_numpy(standardizer.mean.copy()),
         'standardizer_scale': torch.from_numpy(standardizer.scale.copy()),
         'class_weights': class_weights.clone(),
-        'seed': SEED,
+        'seed': int(best_bundle['row']['seed']),
         'selection_metric': 'validation macro-F1',
         'best_epoch': int(best_bundle['row']['best_epoch']),
     }
@@ -469,6 +677,35 @@ def run_corpus(
         f'{corpus.upper()} - MLP test karmaşıklık matrisi',
     )
 
+    stability_summary = None
+    if grid_mode == 'report' and stability_base is not None:
+        stability_id = _config_id(stability_base)
+        stability_rows = [row for row in rows if row['config_id'] == stability_id]
+        stability_summary = {
+            'config_id': stability_id,
+            'config': stability_base.to_dict(),
+            'seeds': [int(row['seed']) for row in stability_rows],
+            'runs': len(stability_rows),
+            'val_macro_f1_mean': float(
+                np.mean([row['val_macro_f1'] for row in stability_rows])
+            ),
+            'val_macro_f1_std': float(
+                np.std([row['val_macro_f1'] for row in stability_rows])
+            ),
+            'val_macro_f1_min': float(
+                np.min([row['val_macro_f1'] for row in stability_rows])
+            ),
+            'val_macro_f1_max': float(
+                np.max([row['val_macro_f1'] for row in stability_rows])
+            ),
+            'val_balanced_accuracy_mean': float(
+                np.mean([row['val_balanced_accuracy'] for row in stability_rows])
+            ),
+            'val_accuracy_mean': float(
+                np.mean([row['val_accuracy'] for row in stability_rows])
+            ),
+        }
+
     result = {
         'corpus': corpus,
         'manifest': str(manifest_path),
@@ -476,8 +713,17 @@ def run_corpus(
         'diagnostic_limit_per_split': limit_per_split,
         'seed': SEED,
         'selection_metric': 'validation macro-F1',
-        'num_trials': len(candidates),
+        'search_protocol': (
+            'screening -> local refinement -> multi-seed stability'
+            if grid_mode == 'report'
+            else grid_mode
+        ),
+        'stability_seeds': [SEED, SEED + 101, SEED + 202]
+        if grid_mode == 'report'
+        else [SEED],
+        'num_trials': len(rows),
         'search_stages': stage_counts,
+        'stability': stability_summary,
         'feature': {
             **asdict(feature_config),
             'vector_size': feature_config.vector_size,
@@ -494,6 +740,7 @@ def run_corpus(
             for index, emotion in enumerate(CANONICAL_EMOTIONS)
         },
         'best_trial': int(best_bundle['row']['trial']),
+        'selected_seed': int(best_bundle['row']['seed']),
         'best_config': best_config.to_dict(),
         'model_parameters': count_parameters(model),
         'best_epoch': int(best_bundle['row']['best_epoch']),
@@ -509,6 +756,7 @@ def run_corpus(
             'history': str(history_path),
             'confusion_matrix': str(corpus_dir / 'test_confusion_matrix.png'),
             'predictions': str(corpus_dir / 'test_predictions.csv'),
+            'search_state': str(state_path),
         },
     }
     _write_json(corpus_dir / 'result.json', result)
@@ -585,6 +833,7 @@ def run_all(
     amp: bool = True,
     limit_per_split: int | None = None,
     prior_results_path: str | Path = 'odev2/outputs/test_comparison_with_knn.csv',
+    resume: bool = True,
 ) -> dict[str, dict[str, Any]]:
     '''Run independent searches for every requested dataset.'''
 
@@ -612,6 +861,7 @@ def run_all(
             loader_workers=loader_workers,
             amp=amp,
             limit_per_split=limit_per_split,
+            resume=resume,
         )
 
     comparison = _write_model_comparison(results, prior_results_path, output_root)
@@ -621,6 +871,7 @@ def run_all(
         'grid_mode': grid_mode,
         'max_epochs': max_epochs,
         'diagnostic_limit_per_split': limit_per_split,
+        'resume_enabled': resume,
         'device': str(device),
         'torch_version': torch.__version__,
         'cuda_version': torch.version.cuda,

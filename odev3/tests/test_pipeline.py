@@ -211,6 +211,8 @@ def test_test_fold_is_untouched_until_validation_search_finishes(
         'train',
         'train',
         'train',
+        'train',
+        'train',
         'load:cremad test',
         'evaluate:test',
     ]
@@ -218,11 +220,19 @@ def test_test_fold_is_untouched_until_validation_search_finishes(
     validation = pd.read_csv(
         tmp_path / 'outputs' / 'cremad' / 'validation_results.csv'
     )
-    assert validation['search_stage'].tolist() == [
-        'refinement',
-        'screening',
-        'screening',
-    ]
+    assert validation['search_stage'].value_counts().to_dict() == {
+        'screening': 2,
+        'stability': 2,
+        'refinement': 1,
+    }
+    assert result['search_stages'] == {
+        'screening': 2,
+        'refinement': 1,
+        'stability': 2,
+    }
+    assert result['stability']['runs'] == 3
+    assert result['stability']['seeds'] == [42, 143, 244]
+    assert result['stability']['val_macro_f1_mean'] == pytest.approx(0.7)
     assert result['test']['macro_f1'] == 0.8
     checkpoint_path = tmp_path / 'outputs' / 'cremad' / 'best_model.pt'
     assert checkpoint_path.is_file()
@@ -235,6 +245,40 @@ def test_test_fold_is_untouched_until_validation_search_finishes(
     assert logits.shape == (2, 6)
     assert standardizer.mean.shape == (6,)
     assert checkpoint['corpus'] == 'cremad'
+
+    events.clear()
+    resumed_result = pipeline_module.run_corpus(
+        'cremad',
+        manifest_path=tmp_path / 'manifest.csv',
+        cache_root=tmp_path / 'cache',
+        output_root=tmp_path / 'outputs',
+        grid_mode='report',
+        max_epochs=2,
+        device=torch.device('cpu'),
+        feature_config=feature_config,
+    )
+
+    assert events == [
+        'load:cremad eğitim',
+        'load:cremad geçerleme',
+        'load:cremad test',
+        'evaluate:test',
+    ]
+    assert resumed_result['best_trial'] == 3
+
+    events.clear()
+    pipeline_module.run_corpus(
+        'cremad',
+        manifest_path=tmp_path / 'manifest.csv',
+        cache_root=tmp_path / 'cache',
+        output_root=tmp_path / 'outputs',
+        grid_mode='report',
+        max_epochs=3,
+        device=torch.device('cpu'),
+        feature_config=feature_config,
+    )
+
+    assert events.count('train') == 5
 
 
 def test_model_comparison_preserves_prior_rows_and_adds_mlp(tmp_path: Path) -> None:

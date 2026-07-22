@@ -54,6 +54,11 @@ def main() -> None:
         default='odev2/outputs/test_comparison_with_knn.csv',
     )
     parser.add_argument('--skip-report', action='store_true')
+    parser.add_argument(
+        '--no-resume',
+        action='store_true',
+        help='Ignore a compatible search_state.pt and rerun every trial.',
+    )
     args = parser.parse_args()
 
     if args.feature_workers < 1 or args.loader_workers < 0:
@@ -87,6 +92,7 @@ def main() -> None:
         amp=not args.no_amp,
         limit_per_split=args.limit_per_split,
         prior_results_path=args.prior_results,
+        resume=not args.no_resume,
     )
 
     if not args.skip_report:
