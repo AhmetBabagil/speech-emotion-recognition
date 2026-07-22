@@ -6,11 +6,14 @@ import argparse
 from dataclasses import asdict
 import json
 from pathlib import Path
+import sys
 import time
 from typing import Any
 
 import numpy as np
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from odev3.dataset import FeatureStandardizer, load_feature_matrix
 from odev3.features_melspec import MelSpecConfig
