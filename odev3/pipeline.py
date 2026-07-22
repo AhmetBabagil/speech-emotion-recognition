@@ -376,6 +376,14 @@ def _selection_key(row: dict[str, Any]) -> tuple[float, float, float]:
     )
 
 
+def _feature_method(config: MelSpecConfig) -> str:
+    return (
+        'librosa.feature.melspectrogram -> log dB -> '
+        f'{config.n_mels}x{config.n_frames} -> '
+        f'{config.frame_strategy} -> flatten'
+    )
+
+
 def run_corpus(
     corpus: str,
     *,
@@ -727,7 +735,7 @@ def run_corpus(
         'feature': {
             **asdict(feature_config),
             'vector_size': feature_config.vector_size,
-            'method': 'librosa.feature.melspectrogram -> log dB -> 64x64 -> flatten',
+            'method': _feature_method(feature_config),
             'pca': False,
         },
         'preprocessing': {
@@ -834,6 +842,7 @@ def run_all(
     limit_per_split: int | None = None,
     prior_results_path: str | Path = 'odev2/outputs/test_comparison_with_knn.csv',
     resume: bool = True,
+    feature_config: MelSpecConfig = DEFAULT_CONFIG,
 ) -> dict[str, dict[str, Any]]:
     '''Run independent searches for every requested dataset.'''
 
@@ -844,7 +853,7 @@ def run_all(
         raise ValueError(f'max_epochs must be positive, got {max_epochs}.')
     output_root = ensure_dir(output_root)
     device = get_device(device_name)
-    feature_config = DEFAULT_CONFIG
+    feature_config.validate()
 
     results: dict[str, dict[str, Any]] = {}
     for corpus in corpora:

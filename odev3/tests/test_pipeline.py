@@ -217,6 +217,8 @@ def test_test_fold_is_untouched_until_validation_search_finishes(
         'evaluate:test',
     ]
     assert result['best_trial'] == 3
+    assert result['feature']['frame_strategy'] == 'crop_pad'
+    assert result['feature']['method'].endswith('2x3 -> crop_pad -> flatten')
     validation = pd.read_csv(
         tmp_path / 'outputs' / 'cremad' / 'validation_results.csv'
     )

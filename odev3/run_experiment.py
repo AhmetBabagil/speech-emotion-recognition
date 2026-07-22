@@ -14,7 +14,25 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from odev3.pipeline import run_all  # noqa: E402
+from odev3.features_melspec import MelSpecConfig  # noqa: E402
 from odev3.search_space import GRID_MODES, search_space  # noqa: E402
+
+
+MIN_ASSIGNMENT_VECTOR_SIZE = 4_000
+
+
+def build_feature_config(n_frames: int, frame_strategy: str) -> MelSpecConfig:
+    config = MelSpecConfig(
+        n_frames=n_frames,
+        frame_strategy=frame_strategy,
+    )
+    config.validate()
+    if config.vector_size < MIN_ASSIGNMENT_VECTOR_SIZE:
+        raise ValueError(
+            'Mel feature vector must contain at least '
+            f'{MIN_ASSIGNMENT_VECTOR_SIZE} values; got {config.vector_size}.'
+        )
+    return config
 
 
 def _result_line(corpus: str, result: dict) -> str:
@@ -43,6 +61,12 @@ def main() -> None:
     parser.add_argument('--device', choices=['auto', 'cpu', 'cuda'], default='auto')
     parser.add_argument('--feature-workers', type=int, default=1)
     parser.add_argument('--loader-workers', type=int, default=0)
+    parser.add_argument('--mel-frames', type=int, default=64)
+    parser.add_argument(
+        '--frame-strategy',
+        choices=['crop_pad', 'resize'],
+        default='crop_pad',
+    )
     parser.add_argument('--no-amp', action='store_true')
     parser.add_argument(
         '--limit-per-split',
@@ -63,6 +87,13 @@ def main() -> None:
 
     if args.feature_workers < 1 or args.loader_workers < 0:
         parser.error('Worker counts must be feature>=1 and loader>=0.')
+    try:
+        feature_config = build_feature_config(
+            args.mel_frames,
+            args.frame_strategy,
+        )
+    except ValueError as error:
+        parser.error(str(error))
     max_epochs = args.max_epochs
     if max_epochs is None:
         max_epochs = 8 if args.grid_mode == 'quick' else 60
@@ -93,6 +124,7 @@ def main() -> None:
         limit_per_split=args.limit_per_split,
         prior_results_path=args.prior_results,
         resume=not args.no_resume,
+        feature_config=feature_config,
     )
 
     if not args.skip_report:
