@@ -49,21 +49,39 @@ REFERENCE_MODELS = {
 
 
 def feature_candidates() -> tuple[MelSpecConfig, ...]:
-    '''Hold frequency resolution fixed while comparing time handling/resolution.'''
+    '''Compare time handling and frequency resolution in controlled pairs.'''
 
     return (
         MelSpecConfig(n_frames=64, frame_strategy='crop_pad'),
         MelSpecConfig(n_frames=64, frame_strategy='resize'),
         MelSpecConfig(n_frames=96, frame_strategy='crop_pad'),
         MelSpecConfig(n_frames=96, frame_strategy='resize'),
+        MelSpecConfig(n_mels=80, n_frames=64, frame_strategy='crop_pad'),
+        MelSpecConfig(n_mels=80, n_frames=64, frame_strategy='resize'),
+        MelSpecConfig(n_mels=96, n_frames=64, frame_strategy='crop_pad'),
+        MelSpecConfig(n_mels=96, n_frames=64, frame_strategy='resize'),
     )
 
 
-def _completed_keys(rows: list[dict[str, Any]], max_epochs: int) -> set[str]:
+def _normalized_model_config(payload: Any) -> str | None:
+    try:
+        data = json.loads(payload) if isinstance(payload, str) else payload
+        return json.dumps(data, sort_keys=True, separators=(',', ':'))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def _completed_keys(
+    rows: list[dict[str, Any]],
+    max_epochs: int,
+    model_config: MLPConfig,
+) -> set[str]:
+    expected_model = _normalized_model_config(model_config.to_dict())
     return {
         str(row['feature_fingerprint'])
         for row in rows
         if int(row['seed']) == SEED and int(row['max_epochs']) == max_epochs
+        and _normalized_model_config(row.get('model_config')) == expected_model
     }
 
 
@@ -84,7 +102,7 @@ def run_corpus_ablation(
     feature_workers: int = 1,
     loader_workers: int = 0,
 ) -> list[dict[str, Any]]:
-    '''Train four matched candidates using only train and validation folds.'''
+    '''Train matched feature candidates using only train and validation folds.'''
 
     if corpus not in REFERENCE_MODELS:
         raise ValueError(f'Unsupported corpus: {corpus!r}.')
@@ -95,25 +113,29 @@ def run_corpus_ablation(
     corpus_dir = ensure_dir(Path(output_root) / corpus)
     history_dir = ensure_dir(corpus_dir / 'histories')
     partial_path = corpus_dir / 'feature_ablation.partial.csv'
+    model_config = REFERENCE_MODELS[corpus]
     rows = _load_partial(partial_path)
-    completed = _completed_keys(rows, max_epochs)
+    completed = _completed_keys(rows, max_epochs, model_config)
     train_frame, validation_frame, _held_out_test_frame = _splits_for(
         corpus,
         manifest_path,
     )
-    model_config = REFERENCE_MODELS[corpus]
+    candidates = feature_candidates()
+    total_trials = len(candidates)
 
-    for trial, feature_config in enumerate(feature_candidates(), start=1):
+    for trial, feature_config in enumerate(candidates, start=1):
         if feature_config.fingerprint in completed:
             print(
-                f'{corpus}: feature trial {trial}/4 already complete '
-                f'({feature_config.frame_strategy}, {feature_config.n_frames} frames)'
+                f'{corpus}: feature trial {trial}/{total_trials} already complete '
+                f'({feature_config.n_mels} mels, {feature_config.n_frames} frames, '
+                f'{feature_config.frame_strategy})'
             )
             continue
 
         print(
-            f'{corpus}: feature trial {trial}/4 '
-            f'({feature_config.frame_strategy}, {feature_config.n_frames} frames)'
+            f'{corpus}: feature trial {trial}/{total_trials} '
+            f'({feature_config.n_mels} mels, {feature_config.n_frames} frames, '
+            f'{feature_config.frame_strategy})'
         )
         started = time.perf_counter()
         cache_dir = Path(cache_root) / corpus
