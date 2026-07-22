@@ -363,6 +363,121 @@
       }
     }
   },
+  "test_calibration": {
+    "method": "top-label equal-width confidence calibration",
+    "sample_size": 321,
+    "num_classes": 6,
+    "num_bins": 10,
+    "negative_log_likelihood": 1.7790908353705486,
+    "multiclass_brier_score": 0.7786685163395473,
+    "expected_calibration_error": 0.24550337379223833,
+    "maximum_calibration_error": 0.3750850713771322,
+    "accuracy": 0.4423676012461059,
+    "mean_confidence": 0.6878709750383443,
+    "confidence_minus_accuracy": 0.24550337379223836,
+    "bins": [
+      {
+        "bin": 1,
+        "lower": 0.0,
+        "upper": 0.1,
+        "count": 0,
+        "fraction": 0.0,
+        "mean_confidence": null,
+        "accuracy": null,
+        "absolute_gap": null
+      },
+      {
+        "bin": 2,
+        "lower": 0.1,
+        "upper": 0.2,
+        "count": 0,
+        "fraction": 0.0,
+        "mean_confidence": null,
+        "accuracy": null,
+        "absolute_gap": null
+      },
+      {
+        "bin": 3,
+        "lower": 0.2,
+        "upper": 0.30000000000000004,
+        "count": 9,
+        "fraction": 0.028037383177570093,
+        "mean_confidence": 0.2668206857310401,
+        "accuracy": 0.1111111111111111,
+        "absolute_gap": 0.15570957461992901
+      },
+      {
+        "bin": 4,
+        "lower": 0.30000000000000004,
+        "upper": 0.4,
+        "count": 29,
+        "fraction": 0.09034267912772585,
+        "mean_confidence": 0.3631688089206301,
+        "accuracy": 0.20689655172413793,
+        "absolute_gap": 0.15627225719649215
+      },
+      {
+        "bin": 5,
+        "lower": 0.4,
+        "upper": 0.5,
+        "count": 50,
+        "fraction": 0.1557632398753894,
+        "mean_confidence": 0.45526458203792575,
+        "accuracy": 0.34,
+        "absolute_gap": 0.11526458203792572
+      },
+      {
+        "bin": 6,
+        "lower": 0.5,
+        "upper": 0.6000000000000001,
+        "count": 36,
+        "fraction": 0.11214953271028037,
+        "mean_confidence": 0.5526118361287646,
+        "accuracy": 0.3611111111111111,
+        "absolute_gap": 0.19150072501765353
+      },
+      {
+        "bin": 7,
+        "lower": 0.6000000000000001,
+        "upper": 0.7000000000000001,
+        "count": 40,
+        "fraction": 0.12461059190031153,
+        "mean_confidence": 0.6529365211725235,
+        "accuracy": 0.375,
+        "absolute_gap": 0.27793652117252354
+      },
+      {
+        "bin": 8,
+        "lower": 0.7000000000000001,
+        "upper": 0.8,
+        "count": 33,
+        "fraction": 0.102803738317757,
+        "mean_confidence": 0.7387594020727909,
+        "accuracy": 0.5151515151515151,
+        "absolute_gap": 0.22360788692127576
+      },
+      {
+        "bin": 9,
+        "lower": 0.8,
+        "upper": 0.9,
+        "count": 46,
+        "fraction": 0.14330218068535824,
+        "mean_confidence": 0.8533459409423496,
+        "accuracy": 0.4782608695652174,
+        "absolute_gap": 0.3750850713771322
+      },
+      {
+        "bin": 10,
+        "lower": 0.9,
+        "upper": 1.0,
+        "count": 78,
+        "fraction": 0.24299065420560748,
+        "mean_confidence": 0.9675078430236914,
+        "accuracy": 0.6538461538461539,
+        "absolute_gap": 0.31366168917753756
+      }
+    ]
+  },
   "artifacts": {
     "model": "odev3\\outputs\\cremad\\best_model.pt",
     "validation_results": "odev3\\outputs\\cremad\\validation_results.csv",
@@ -370,6 +485,7 @@
     "confusion_matrix": "odev3\\outputs\\cremad\\test_confusion_matrix.png",
     "predictions": "odev3\\outputs\\cremad\\test_predictions.csv",
     "uncertainty": "odev3\\outputs\\cremad\\test_uncertainty.json",
+    "calibration": "odev3\\outputs\\cremad\\test_calibration.json",
     "search_state": "odev3\\outputs\\cremad\\search_state.pt"
   }
 }

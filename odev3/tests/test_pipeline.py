@@ -287,6 +287,17 @@ def test_test_fold_is_untouched_until_validation_search_finishes(
     with uncertainty_path.open(encoding='utf-8') as handle:
         saved_uncertainty = json.load(handle)
     assert saved_uncertainty == result['test_uncertainty']
+    assert result['test_calibration']['sample_size'] == 6
+    assert result['test_calibration']['accuracy'] == pytest.approx(1.0)
+    assert result['test_calibration']['multiclass_brier_score'] == pytest.approx(0.0)
+    assert result['test_calibration']['expected_calibration_error'] == pytest.approx(
+        0.0
+    )
+    calibration_path = Path(result['artifacts']['calibration'])
+    assert calibration_path.is_file()
+    with calibration_path.open(encoding='utf-8') as handle:
+        saved_calibration = json.load(handle)
+    assert saved_calibration == result['test_calibration']
     checkpoint_path = tmp_path / 'outputs' / 'cremad' / 'best_model.pt'
     assert checkpoint_path.is_file()
 

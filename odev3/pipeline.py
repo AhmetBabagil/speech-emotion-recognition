@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 import torch
 
+from odev3.calibration import classification_calibration_report
 from odev3.dataset import FeatureStandardizer, load_feature_matrix
 from odev3.features_melspec import DEFAULT_CONFIG, MelSpecConfig
 from odev3.model import MLP, MLPConfig, count_parameters
@@ -662,6 +663,11 @@ def run_corpus(
         confidence=0.95,
         seed=SEED,
     )
+    test_calibration = classification_calibration_report(
+        probabilities,
+        test_labels,
+        bins=10,
+    )
 
     prediction_frame = test_frame[
         ['path', 'speaker', 'emotion', 'label_idx']
@@ -676,6 +682,8 @@ def run_corpus(
     prediction_frame.to_csv(corpus_dir / 'test_predictions.csv', index=False)
     uncertainty_path = corpus_dir / 'test_uncertainty.json'
     _write_json(uncertainty_path, test_uncertainty)
+    calibration_path = corpus_dir / 'test_calibration.json'
+    _write_json(calibration_path, test_calibration)
 
     checkpoint = {
         'schema_version': 1,
@@ -784,6 +792,7 @@ def run_corpus(
         'test_loss': float(test_loss),
         'test': test_metrics,
         'test_uncertainty': test_uncertainty,
+        'test_calibration': test_calibration,
         'artifacts': {
             'model': str(corpus_dir / 'best_model.pt'),
             'validation_results': str(corpus_dir / 'validation_results.csv'),
@@ -791,6 +800,7 @@ def run_corpus(
             'confusion_matrix': str(corpus_dir / 'test_confusion_matrix.png'),
             'predictions': str(corpus_dir / 'test_predictions.csv'),
             'uncertainty': str(uncertainty_path),
+            'calibration': str(calibration_path),
             'search_state': str(state_path),
         },
     }
