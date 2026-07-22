@@ -20,6 +20,7 @@ from odev1.features_w2v import extract_all  # noqa: E402
 
 
 def main():
+    """CLI argumanlarini okuyup resumable Wav2Vec2 cache islemini baslatir."""
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--manifest", default="data/processed/manifest.csv")
     ap.add_argument("--cache-dir", default="odev1/cache/w2v")

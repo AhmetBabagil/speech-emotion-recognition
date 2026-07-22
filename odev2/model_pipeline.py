@@ -62,6 +62,11 @@ GRID_MODES = ("quick", "report", "full")
 
 @dataclass(frozen=True)
 class ModelSpec:
+    """Bir model ailesinin adini, gridlerini ve estimator fabrikasini birlikte tutar.
+
+    Bu veri sinifi sayesinde Decision Tree, Random Forest ve Gradient Boosting ayni
+    deney dongusunden gecirilebilir; modele ozel farklar tek yapida tanimlanir.
+    """
     name: str
     display_name: str
     param_grid: dict[str, list[Any]]
@@ -72,12 +77,18 @@ class ModelSpec:
 
 
 def _grid_product(grid: dict[str, list[Any]]) -> list[dict[str, Any]]:
+    """Hiperparametre listelerinin Kartezyen carpimini ayar sozluklerine cevirir."""
     keys = list(grid.keys())
     values = [grid[k] for k in keys]
     return [dict(zip(keys, combo)) for combo in product(*values)]
 
 
 def _grid_settings(spec: ModelSpec, grid_mode: str) -> tuple[list[str], list[int], list[dict[str, Any]]]:
+    """Quick/report/full moduna gore feature, PCA ve model ayarlarini secer.
+
+    `quick` calisma kontrolu, `report` teslim deneyleri, `full` ise en genis arama
+    icindir. Report modunda pahali Gradient Boosting yalniz none/64 PCA dener.
+    """
     if grid_mode == "quick":
         return QUICK_POOLS, QUICK_PCA_DIMS, _grid_product(spec.quick_grid)
     if grid_mode == "report":
@@ -89,20 +100,24 @@ def _grid_settings(spec: ModelSpec, grid_mode: str) -> tuple[list[str], list[int
 
 
 def _json_default(value: Any) -> str:
+    """NumPy skalerlerini JSON'un yazabilecegi yerel Python degerlerine cevirir."""
     if isinstance(value, (np.integer, np.floating)):
         return value.item()
     return str(value)
 
 
 def _params_to_text(params: dict[str, Any]) -> str:
+    """Hiperparametre sozlugunu CSV/JSON tablolarinda sabit sirali metne cevirir."""
     return json.dumps(params, ensure_ascii=False, sort_keys=True, default=_json_default)
 
 
 def _make_decision_tree(params: dict[str, Any]) -> DecisionTreeClassifier:
+    """Sinif dengesini agirliklandiran, tekrarlanabilir Decision Tree kurar."""
     return DecisionTreeClassifier(random_state=SEED, class_weight="balanced", **params)
 
 
 def _make_random_forest(params: dict[str, Any]) -> RandomForestClassifier:
+    """Sinif agirlikli Random Forest kurar; Windows guvenligi icin tek is parcasi kullanir."""
     return RandomForestClassifier(
         random_state=SEED,
         class_weight="balanced",
@@ -113,6 +128,7 @@ def _make_random_forest(params: dict[str, Any]) -> RandomForestClassifier:
 
 
 def _make_gradient_boosting(params: dict[str, Any]) -> HistGradientBoostingClassifier:
+    """Histogram tabanli, early-stopping kullanan Gradient Boosting modeli kurar."""
     return HistGradientBoostingClassifier(
         random_state=SEED,
         max_iter=30,
@@ -185,6 +201,7 @@ MODEL_SPECS: list[ModelSpec] = [
 
 
 def _splits_for(corpus: str, manifest: str):
+    """Tek corpus icin Odev 1 ile ayni speaker-independent splitleri uretir."""
     cfg = Config()
     cfg.data.manifest = manifest
     cfg.data.train_corpora = (corpus,)
@@ -196,6 +213,7 @@ def _splits_for(corpus: str, manifest: str):
 
 
 def _fit_pca(Xtr_scaled: np.ndarray, requested_dim: int) -> PCA | None:
+    """PCA'yi sadece verilen fit matrisine uyarlar; sifir boyut PCA yok demektir."""
     if requested_dim == 0:
         return None
     n_eff = min(requested_dim, Xtr_scaled.shape[1], Xtr_scaled.shape[0])
@@ -207,6 +225,7 @@ def _transform_with_pca(
     Xva: np.ndarray,
     requested_dim: int,
 ) -> tuple[np.ndarray, np.ndarray, int | str]:
+    """PCA'yi train'e fit edip train ve validation'i ayni donusumle projekte eder."""
     pca = _fit_pca(Xtr, requested_dim)
     if pca is None:
         return Xtr, Xva, "none"
@@ -214,6 +233,11 @@ def _transform_with_pca(
 
 
 def _fit_estimator(spec: ModelSpec, params: dict[str, Any], X: np.ndarray, y: np.ndarray):
+    """Modeli kurup gerekirse balanced sample weight ile fit eder.
+
+    Tree/Forest kendi `class_weight` ayarini kullanir. HistGradientBoosting icin
+    ayni amac `compute_sample_weight` ile ornek bazinda gerceklestirilir.
+    """
     estimator = spec.make_estimator(params)
     if spec.fit_with_sample_weight:
         sample_weight = compute_sample_weight(class_weight="balanced", y=y)
@@ -224,6 +248,7 @@ def _fit_estimator(spec: ModelSpec, params: dict[str, Any], X: np.ndarray, y: np
 
 
 def _metric_row(prefix: str, metrics: dict[str, Any]) -> dict[str, float]:
+    """Metrik sozlugunu CSV icin prefix'li ve dort ondaliga yuvarlanmis satira cevirir."""
     return {
         f"{prefix}_accuracy": round(metrics["accuracy"], 4),
         f"{prefix}_balanced_accuracy": round(metrics["balanced_accuracy"], 4),
@@ -242,26 +267,36 @@ def run_model_for_dataset(
     out_dir: Path,
     grid_mode: str = "report",
 ) -> dict[str, Any]:
+    """Tek corpus-model cifti icin validation gridini ve final testi calistirir.
+
+    Feature pooling, PCA boyutu ve model hiperparametreleri validation setinde
+    taranir. En iyi ayar train+validation ile yeniden egitilir; test yalniz final
+    metrik, sinif raporu ve confusion matrix uretmek icin kullanilir.
+    """
     pools, pca_dims, params_grid = _grid_settings(spec, grid_mode)
 
     rows: list[dict[str, Any]] = []
     best: dict[str, Any] | None = None
 
     for pool in pools:
+        # F: mean(768), mean+std(1536) veya mean+std+max(2304).
         Xtr, ytr = load_pooled(train_df, pool, cache_dir=cache_dir)
         Xva, yva = load_pooled(val_df, pool, cache_dir=cache_dir)
         if len(Xtr) == 0 or len(Xva) == 0:
             log.warning("[%s/%s/%s] missing train or validation features", corpus, spec.name, pool)
             continue
 
+        # Scaler ve PCA validation'a degil, yalniz train'e fit edilir.
         scaler = StandardScaler().fit(Xtr)
         Xtr_s = scaler.transform(Xtr)
         Xva_s = scaler.transform(Xva)
 
         for requested_pca in pca_dims:
+            # Ayni scaled feature matrisi farkli PCA boyutlarinda tekrar kullanilir.
             Xtr_p, Xva_p, effective_pca = _transform_with_pca(Xtr_s, Xva_s, requested_pca)
 
             for params in params_grid:
+                # Her estimator sifirdan kurulur; kombinasyonlar birbirini etkilemez.
                 estimator = _fit_estimator(spec, params, Xtr_p, ytr)
                 metrics = compute_metrics(yva, estimator.predict(Xva_p))
                 row = {
@@ -277,6 +312,7 @@ def run_model_for_dataset(
                 }
                 rows.append(row)
 
+                # Birincil secim macro-F1; esitlikte balanced accuracy ve accuracy.
                 score = (
                     metrics["macro_f1"],
                     metrics["balanced_accuracy"],
@@ -304,6 +340,7 @@ def run_model_for_dataset(
     grid_path = out_dir / f"{spec.name}_validation_grid.csv"
     grid.to_csv(grid_path, index=False)
 
+    # Model secimi bittigi icin validation'i final egitim verisine katabiliriz.
     fit_df = pd.concat([train_df, val_df], ignore_index=True)
     Xfit, yfit = load_pooled(fit_df, best["pool"], cache_dir=cache_dir)
     Xte, yte = load_pooled(test_df, best["pool"], cache_dir=cache_dir)
@@ -312,6 +349,7 @@ def run_model_for_dataset(
             f"No valid train+val or test features for corpus={corpus}, model={spec.name}."
         )
 
+    # Final scaler/PCA, daha buyuk train+val verisi uzerinde bastan fit edilir.
     scaler = StandardScaler().fit(Xfit)
     Xfit_s = scaler.transform(Xfit)
     Xte_s = scaler.transform(Xte)
@@ -377,6 +415,7 @@ def run_dataset(
     grid_mode: str = "report",
     model_keys: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
+    """Bir corpusu boler, secilen model ailelerini sirayla calistirir."""
     set_seed(SEED)
     out_dir = ensure_dir(Path(out_root) / corpus)
     train_df, val_df, test_df = _splits_for(corpus, manifest)
@@ -407,6 +446,7 @@ def run_dataset(
 
 
 def _comparison_rows(results: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    """Ic ice sonuc sozluklerini model karsilastirma CSV'si icin duz satirlara acar."""
     rows: list[dict[str, Any]] = []
     for corpus, corpus_results in results.items():
         for result in corpus_results.values():
@@ -432,6 +472,7 @@ def _comparison_rows(results: dict[str, dict[str, Any]]) -> list[dict[str, Any]]
 
 
 def _load_knn_rows(corpora: tuple[str, ...], knn_out_root: str) -> list[dict[str, Any]]:
+    """Odev 1 KNN JSON'larini Odev 2 karsilastirma tablosunun semasina donusturur."""
     rows: list[dict[str, Any]] = []
     for corpus in corpora:
         path = Path(knn_out_root) / corpus / "result.json"
@@ -469,6 +510,11 @@ def run_all(
     model_keys: tuple[str, ...] | None = None,
     knn_out_root: str = "odev1/outputs",
 ) -> dict[str, Any]:
+    """Tum corpus/model deneylerini yonetir ve ortak CSV/summary ciktilarini yazar.
+
+    `model_comparison.csv` yalniz Odev 2 modellerini,
+    `test_comparison_with_knn.csv` ise Odev 1 KNN sonucunu da icerir.
+    """
     if quick:
         grid_mode = "quick"
     if grid_mode not in GRID_MODES:

@@ -35,6 +35,7 @@ env/
 # OS / editor
 .DS_Store
 Thumbs.db
+~$*.docx
 .vscode/
 .idea/
 

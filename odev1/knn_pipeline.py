@@ -43,6 +43,11 @@ SEED = 42
 
 
 def _splits_for(corpus: str, manifest: str):
+    """Tek corpus icin seed=42 ile speaker-independent train/val/test uretir.
+
+    Bolme mantigi `ser.data.prepare_splits` icindedir; bu yardimci yalniz Odev 1
+    icin corpus ve split ayarlarini Config nesnesine yerlestirir.
+    """
     cfg = Config()
     cfg.data.manifest = manifest
     cfg.data.train_corpora = (corpus,)
@@ -54,7 +59,11 @@ def _splits_for(corpus: str, manifest: str):
 
 
 def _fit_pca(Xtr_scaled, n):
-    """PCA fit on train. n=0 -> identity (no PCA). Clamp to valid range."""
+    """PCA'yi sadece scaled train matrisine fit eder; `n=0` PCA kullanmaz.
+
+    Istenen boyut ornek veya feature sayisini asarsa gecerli en buyuk boyuta
+    indirilir. Validation ve test verisi PCA fit islemine katilmaz.
+    """
     if n == 0:
         return None
     n_eff = min(n, Xtr_scaled.shape[1], Xtr_scaled.shape[0])
@@ -63,6 +72,11 @@ def _fit_pca(Xtr_scaled, n):
 
 
 def run_dataset(corpus: str, manifest: str, cache_dir: str, out_root: str) -> dict:
+    """Bir corpusun tum F-P-K aramasini ve final KNN testini calistirir.
+
+    Once validation macro-F1 ile en iyi feature/PCA/K ayari secilir. Sonra bu ayar
+    train+validation uzerinde bastan fit edilip testte bir kez degerlendirilir.
+    """
     set_seed(SEED)
     out_dir = ensure_dir(Path(out_root) / corpus)
     train_df, val_df, test_df = _splits_for(corpus, manifest)
@@ -72,21 +86,24 @@ def run_dataset(corpus: str, manifest: str, cache_dir: str, out_root: str) -> di
     best = None  # (val_macro_f1, dict)
 
     for pool in POOLS:
-        # Load features once per size (numpy only; sliced from the cached vectors).
+        # F: cache'teki mean/std/max bloklarindan kacinin kullanilacagini belirler.
         Xtr, ytr = load_pooled(train_df, pool, cache_dir=cache_dir)
         Xva, yva = load_pooled(val_df, pool, cache_dir=cache_dir)
         if len(Xtr) == 0 or len(Xva) == 0:
             log.warning("[%s/%s] missing features — did extraction finish?", corpus, pool)
             continue
+        # KNN uzakliga dayali oldugu icin boyutlari train istatistigiyle ayni olcege getir.
         scaler = StandardScaler().fit(Xtr)
         Xtr_s, Xva_s = scaler.transform(Xtr), scaler.transform(Xva)
 
         for pdim in PCA_DIMS:
+            # P: PCA yok veya 32/64/128/256 cikti boyutundan biri.
             pca = _fit_pca(Xtr_s, pdim)
             Xtr_p = Xtr_s if pca is None else pca.transform(Xtr_s)
             Xva_p = Xva_s if pca is None else pca.transform(Xva_s)
             eff_dim = Xtr_p.shape[1]
             for k in KS:
+                # K: tahminde esit oy kullanacak en yakin komsu sayisi.
                 if k > len(Xtr_p):
                     continue
                 knn = KNeighborsClassifier(n_neighbors=k)
@@ -97,13 +114,15 @@ def run_dataset(corpus: str, manifest: str, cache_dir: str, out_root: str) -> di
                        "val_accuracy": round(m["accuracy"], 4),
                        "val_macro_f1": round(m["macro_f1"], 4)}
                 grid_rows.append(row)
+                # Teste bakmadan, yalniz validation macro-F1 ile model secilir.
                 if best is None or m["macro_f1"] > best[0]:
                     best = (m["macro_f1"], {"feature": pool, "pca_dim": pdim, "K": k})
 
     grid = pd.DataFrame(grid_rows)
     grid.to_csv(out_dir / "validation_grid.csv", index=False)
 
-    # ---- refit best on train+val, evaluate on test ----------------------------
+    # Secimden sonra validation final egitime katilir. Scaler, PCA ve KNN
+    # train+val uzerinde bastan fit edilir; test yalnizca transform ve tahmin gorur.
     bf = best[1]
     fit_df = pd.concat([train_df, val_df], ignore_index=True)
     Xfit, yfit = load_pooled(fit_df, bf["feature"], cache_dir=cache_dir)
@@ -140,6 +159,7 @@ def run_all(manifest: str = "data/processed/manifest.csv",
             cache_dir: str = "odev1/cache/w2v",
             out_root: str = "odev1/outputs",
             corpora=(CORPUS_CREMAD, CORPUS_MELD)) -> dict:
+    """Corpuslari sirayla calistirip ortak test karsilastirmasi ve ozeti uretir."""
     results = {}
     for corpus in corpora:
         results[corpus] = run_dataset(corpus, manifest, cache_dir, out_root)

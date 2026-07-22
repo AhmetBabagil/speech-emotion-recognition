@@ -18,6 +18,7 @@ from odev1.knn_pipeline import run_all  # noqa: E402
 
 
 def main():
+    """CLI seceneklerini okuyup Odev 1 KNN deneylerini `run_all` ile baslatir."""
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--manifest", default="data/processed/manifest.csv")
     ap.add_argument("--cache-dir", default="odev1/cache/w2v")

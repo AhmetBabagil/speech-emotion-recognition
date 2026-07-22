@@ -17,6 +17,7 @@ from odev2.model_pipeline import MODEL_SPECS, run_all  # noqa: E402
 
 
 def main() -> None:
+    """CLI argumanlarini okuyup Odev 2 deney yoneticisi `run_all` fonksiyonunu cagirir."""
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )

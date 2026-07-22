@@ -37,10 +37,16 @@ DEFAULT_MODEL = "facebook/wav2vec2-base"
 
 
 def _meta_hash(model_name: str, sr: int, max_seconds: float) -> str:
+    """Cache'i model, ornekleme hizi ve klip suresi ayarlarina baglar.
+
+    Ayarlardan biri degisirse farkli cache dosyalari kullanilir; uyumsuz feature
+    vektorlerinin ayni deneyde karismasi onlenir.
+    """
     return hashlib.md5(f"{model_name}|{sr}|{max_seconds}".encode()).hexdigest()[:10]
 
 
 def _cache_path(cache_dir: Path, corpus: str, audio_path: str, h: str) -> Path:
+    """Bir ses kaydinin Wav2Vec2 `.npy` cache yolunu deterministik kurar."""
     p = Path(audio_path)
     # parent folder + stem: MELD dia{D}_utt{U} ids restart per split, so include it
     return Path(cache_dir) / corpus / f"{p.parent.name}_{p.stem}__{h}.npy"
@@ -51,6 +57,7 @@ class W2VExtractor:
 
     def __init__(self, model_name: str = DEFAULT_MODEL, sample_rate: int = 16000,
                  max_seconds: float = 6.0):
+        """Donmus Wav2Vec2 modelini bir kez yukler ve CPU/GPU cihazini secer."""
         import os
         import torch
         from transformers import Wav2Vec2Model
@@ -69,6 +76,11 @@ class W2VExtractor:
         log.info("Loaded %s (hidden=%d) on %s", model_name, self.H, self.device)
 
     def pool(self, wav: np.ndarray) -> np.ndarray:
+        """Tek ses dalgasini sabit uzunluklu `[mean, std, max]` vektorune cevirir.
+
+        `facebook/wav2vec2-base` hidden size'i 768 oldugu icin cikti boyutu
+        3 * 768 = 2304'tur. `torch.no_grad()` agirlik guncellemesini engeller.
+        """
         torch = self.torch
         wav = np.asarray(wav, dtype=np.float32)
         if wav.shape[0] > self.max_samples:  # center-crop very long clips
@@ -94,6 +106,9 @@ def extract_all(manifest_csv: str, cache_dir: str = "odev1/cache/w2v",
     Resumable: clips already cached are skipped. For parallelism, run several
     processes with the same num_shards and different shard (0..num_shards-1);
     each handles a disjoint slice of the still-missing clips. Returns manifest size.
+
+    Ozet: manifesti okur, cache'i olmayan sesleri bulur, `W2VExtractor.pool` ile
+    2304 boyutlu vektor uretir ve atomik bicimde `.npy` dosyasina kaydeder.
     """
     from tqdm import tqdm
 
@@ -138,6 +153,9 @@ def load_pooled(df: pd.DataFrame, pool: str, cache_dir: str = "odev1/cache/w2v",
 
     Reads cached [3H] vectors and slices to the requested size. numpy only — no
     torch — so the KNN stage stays within the allowed libraries.
+
+    `mean` ilk 768, `mean_std` ilk 1536, `mean_std_max` tum 2304 boyutu alir.
+    Cikti `(X, y)` feature matrisi ve etiket dizisidir. Eksik cache satirlari atlanir.
     """
     h = _meta_hash(model_name, sample_rate, max_seconds)
     cache_dir = Path(cache_dir)

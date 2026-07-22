@@ -17,6 +17,11 @@ from ser.constants import CANONICAL_EMOTIONS, NUM_CLASSES  # label space only  #
 
 
 def compute_metrics(y_true, y_pred) -> dict:
+    """Tahminlerden genel, dengeli ve sinif bazli siniflandirma metrikleri uretir.
+
+    Macro-F1 her sinifa esit, weighted-F1 ise sinif support'una gore agirlik verir.
+    Donen sozluk confusion matrix'i de ham sayilarla icerir.
+    """
     from sklearn.metrics import (
         accuracy_score, balanced_accuracy_score, f1_score,
         precision_recall_fscore_support, confusion_matrix,
@@ -37,12 +42,18 @@ def compute_metrics(y_true, y_pred) -> dict:
 
 
 def plot_confusion(cm, out_path, title="Karmaşıklık matrisi", normalize=True):
+    """Confusion matrix'i PNG cizer; satir gercek, sutun tahmin edilen siniftir.
+
+    Varsayilan satir normalizasyonu, her gercek sinifin tahminlere dagilimini oran
+    olarak gosterir ve farkli support sayilarini karsilastirmayi kolaylastirir.
+    """
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
     cm = np.asarray(cm, dtype=np.float64)
     if normalize:
+        # Her satiri o gercek sinifin toplam ornek sayisina bol.
         rs = cm.sum(axis=1, keepdims=True)
         disp = np.divide(cm, rs, out=np.zeros_like(cm), where=rs != 0)
         fmt = ".2f"
@@ -51,10 +62,13 @@ def plot_confusion(cm, out_path, title="Karmaşıklık matrisi", normalize=True)
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     fig, ax = plt.subplots(figsize=(6.2, 5.4))
     im = ax.imshow(disp, cmap="Blues", vmin=0, vmax=1 if normalize else None)
-    ax.set_xticks(range(NUM_CLASSES)); ax.set_yticks(range(NUM_CLASSES))
+    ax.set_xticks(range(NUM_CLASSES))
+    ax.set_yticks(range(NUM_CLASSES))
     ax.set_xticklabels(CANONICAL_EMOTIONS, rotation=45, ha="right")
     ax.set_yticklabels(CANONICAL_EMOTIONS)
-    ax.set_xlabel("Tahmin"); ax.set_ylabel("Gerçek"); ax.set_title(title)
+    ax.set_xlabel("Tahmin")
+    ax.set_ylabel("Gerçek")
+    ax.set_title(title)
     for i in range(NUM_CLASSES):
         for j in range(NUM_CLASSES):
             ax.text(j, i, format(disp[i, j], fmt), ha="center", va="center",

@@ -24,6 +24,7 @@ log = get_logger(__name__)
 
 
 def _valid_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """Ortak alti sinif disindaki satirlari atar ve speaker tipini standartlastirir."""
     df = df[df["label_idx"].between(0, NUM_CLASSES - 1)].copy()
     df["speaker"] = df["speaker"].astype(str)
     return df
@@ -46,7 +47,12 @@ def _speaker_partition(df: pd.DataFrame, fractions: list[float], seed: int) -> l
     """Partition ``df`` into len(fractions) folds by whole speakers.
 
     fractions sum to 1; speakers are shuffled deterministically and sliced.
+
+    Oranlar kayit sayisina degil konusmaci sayisina uygulanir. Bir konusmacinin
+    butun kayitlari ayni folda girdigi icin train/validation/test kimlik sizintisi
+    olusmaz.
     """
+    # Once siralamak, ayni seed ile platformdan bagimsiz baslangic sirasi saglar.
     speakers = sorted(df["speaker"].unique())
     rng = np.random.default_rng(seed)
     rng.shuffle(speakers)
@@ -56,6 +62,7 @@ def _speaker_partition(df: pd.DataFrame, fractions: list[float], seed: int) -> l
             f"Need at least {len(fractions)} distinct speakers for a "
             f"speaker-independent split, but only found {n}."
         )
+    # Konusmaci sayisini oranlara gore kesme sinirlarina cevir.
     bounds = np.cumsum([int(round(f * n)) for f in fractions])
     bounds[-1] = n  # absorb rounding into last fold
     folds, start = [], 0
@@ -67,6 +74,7 @@ def _speaker_partition(df: pd.DataFrame, fractions: list[float], seed: int) -> l
 
 
 def _random_partition(df: pd.DataFrame, fractions: list[float], seed: int) -> list[pd.DataFrame]:
+    """Satirlari rastgele boler; ayni speaker farkli foldlara dusebilecegi icin ana protokol degildir."""
     idx = np.arange(len(df))
     rng = np.random.default_rng(seed)
     rng.shuffle(idx)
@@ -81,7 +89,12 @@ def _random_partition(df: pd.DataFrame, fractions: list[float], seed: int) -> li
 
 
 def prepare_splits(manifest: pd.DataFrame, data_cfg, seed: int = 42):
-    """Return (train_df, val_df, test_df) according to ``data_cfg``."""
+    """Config'e gore `(train_df, val_df, test_df)` ureten ana bolme fonksiyonudur.
+
+    Ayni corpusla egitim/degerlendirmede uc fold uretir. Farkli corpuslarda egitim
+    corpusunu train/validation'a boler ve diger corpusun tamamini test yapar. Odev 1
+    ve Odev 2, `split="speaker"` vererek bu fonksiyonu ortak kullanir.
+    """
     df = _valid_rows(manifest)
     train_corpora = set(data_cfg.train_corpora)
     eval_corpora = set(data_cfg.eval_corpora)
