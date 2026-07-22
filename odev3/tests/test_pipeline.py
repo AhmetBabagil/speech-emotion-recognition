@@ -11,7 +11,11 @@ import torch
 from odev3 import pipeline as pipeline_module
 from odev3.features_melspec import MelSpecConfig
 from odev3.model import MLP, MLPConfig
-from odev3.pipeline import _split_summary, _stratified_limit
+from odev3.pipeline import (
+    _normalized_search_signature,
+    _split_summary,
+    _stratified_limit,
+)
 from ser.constants import CANONICAL_EMOTIONS
 
 
@@ -68,6 +72,25 @@ def test_diagnostic_limit_is_stratified_and_deterministic() -> None:
     assert len(first) == 18
     assert set(first['label_idx']) == set(range(6))
     assert first['row_id'].tolist() == second['row_id'].tolist()
+
+
+def test_legacy_search_signature_defaults_to_crop_pad() -> None:
+    legacy = {'feature_config': {'n_mels': 64, 'n_frames': 64}}
+    current = {
+        'feature_config': {
+            'n_mels': 64,
+            'n_frames': 64,
+            'frame_strategy': 'crop_pad',
+        }
+    }
+
+    assert _normalized_search_signature(legacy) == _normalized_search_signature(
+        current
+    )
+    resized = {'feature_config': {**legacy['feature_config'], 'frame_strategy': 'resize'}}
+    assert _normalized_search_signature(legacy) != _normalized_search_signature(
+        resized
+    )
 
 
 def _six_class_fold(prefix: str) -> pd.DataFrame:

@@ -148,6 +148,17 @@ def _save_search_state(
     os.replace(temporary, path)
 
 
+def _normalized_search_signature(signature: dict[str, Any]) -> dict[str, Any]:
+    '''Fill defaults added after older, behaviorally equivalent search states.'''
+
+    normalized = json.loads(json.dumps(signature, default=_json_default))
+    normalized.setdefault('feature_config', {}).setdefault(
+        'frame_strategy',
+        'crop_pad',
+    )
+    return normalized
+
+
 def _load_search_state(
     path: Path,
     signature: dict[str, Any],
@@ -162,7 +173,11 @@ def _load_search_state(
     except (OSError, RuntimeError, ValueError, TypeError, pickle.UnpicklingError) as error:
         log.warning('Ignoring unreadable search state %s: %s', path, error)
         return None
-    if payload.get('schema_version') != 2 or payload.get('signature') != signature:
+    saved_signature = payload.get('signature', {})
+    signatures_match = _normalized_search_signature(
+        saved_signature
+    ) == _normalized_search_signature(signature)
+    if payload.get('schema_version') != 2 or not signatures_match:
         log.warning('Ignoring incompatible search state: %s', path)
         return None
     return {
