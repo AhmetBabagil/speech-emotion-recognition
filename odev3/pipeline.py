@@ -843,6 +843,7 @@ def run_all(
     prior_results_path: str | Path = 'odev2/outputs/test_comparison_with_knn.csv',
     resume: bool = True,
     feature_config: MelSpecConfig = DEFAULT_CONFIG,
+    feature_configs: dict[str, MelSpecConfig] | None = None,
 ) -> dict[str, dict[str, Any]]:
     '''Run independent searches for every requested dataset.'''
 
@@ -854,6 +855,12 @@ def run_all(
     output_root = ensure_dir(output_root)
     device = get_device(device_name)
     feature_config.validate()
+    selected_feature_configs = {
+        corpus: (feature_configs or {}).get(corpus, feature_config)
+        for corpus in corpora
+    }
+    for corpus, selected_config in selected_feature_configs.items():
+        selected_config.validate()
 
     results: dict[str, dict[str, Any]] = {}
     for corpus in corpora:
@@ -865,7 +872,7 @@ def run_all(
             grid_mode=grid_mode,
             max_epochs=max_epochs,
             device=device,
-            feature_config=feature_config,
+            feature_config=selected_feature_configs[corpus],
             feature_workers=feature_workers,
             loader_workers=loader_workers,
             amp=amp,
@@ -884,9 +891,12 @@ def run_all(
         'device': str(device),
         'torch_version': torch.__version__,
         'cuda_version': torch.version.cuda,
-        'feature_config': {
-            **asdict(feature_config),
-            'vector_size': feature_config.vector_size,
+        'feature_config_by_dataset': {
+            corpus: {
+                **asdict(selected_config),
+                'vector_size': selected_config.vector_size,
+            }
+            for corpus, selected_config in selected_feature_configs.items()
         },
         'per_dataset': results,
         'comparison_rows': comparison.to_dict(orient='records'),

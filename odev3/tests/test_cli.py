@@ -2,7 +2,11 @@
 
 import pytest
 
-from odev3.run_experiment import _result_line, build_feature_config
+from odev3.run_experiment import (
+    _result_line,
+    build_feature_config,
+    build_feature_configs,
+)
 
 
 def test_result_line_formats_test_metrics() -> None:
@@ -24,3 +28,18 @@ def test_build_feature_config_supports_full_utterance_resizing() -> None:
 def test_build_feature_config_enforces_assignment_minimum() -> None:
     with pytest.raises(ValueError, match='at least 4000'):
         build_feature_config(62, 'crop_pad')
+
+
+def test_build_feature_configs_applies_dataset_specific_overrides() -> None:
+    configs = build_feature_configs(
+        ('cremad', 'meld'),
+        default_frames=64,
+        default_strategy='crop_pad',
+        frame_overrides={'cremad': None, 'meld': 96},
+        strategy_overrides={'cremad': 'resize', 'meld': None},
+    )
+
+    assert configs['cremad'].frame_strategy == 'resize'
+    assert configs['cremad'].n_frames == 64
+    assert configs['meld'].frame_strategy == 'crop_pad'
+    assert configs['meld'].n_frames == 96

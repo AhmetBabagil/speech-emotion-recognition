@@ -35,6 +35,23 @@ def build_feature_config(n_frames: int, frame_strategy: str) -> MelSpecConfig:
     return config
 
 
+def build_feature_configs(
+    corpora: tuple[str, ...],
+    *,
+    default_frames: int,
+    default_strategy: str,
+    frame_overrides: dict[str, int | None],
+    strategy_overrides: dict[str, str | None],
+) -> dict[str, MelSpecConfig]:
+    return {
+        corpus: build_feature_config(
+            frame_overrides.get(corpus) or default_frames,
+            strategy_overrides.get(corpus) or default_strategy,
+        )
+        for corpus in corpora
+    }
+
+
 def _result_line(corpus: str, result: dict) -> str:
     test_metrics = result['test']
     return (
@@ -67,6 +84,12 @@ def main() -> None:
         choices=['crop_pad', 'resize'],
         default='crop_pad',
     )
+    for corpus in ('cremad', 'meld'):
+        parser.add_argument(f'--{corpus}-mel-frames', type=int)
+        parser.add_argument(
+            f'--{corpus}-frame-strategy',
+            choices=['crop_pad', 'resize'],
+        )
     parser.add_argument('--no-amp', action='store_true')
     parser.add_argument(
         '--limit-per-split',
@@ -88,9 +111,18 @@ def main() -> None:
     if args.feature_workers < 1 or args.loader_workers < 0:
         parser.error('Worker counts must be feature>=1 and loader>=0.')
     try:
-        feature_config = build_feature_config(
-            args.mel_frames,
-            args.frame_strategy,
+        feature_configs = build_feature_configs(
+            tuple(args.corpora),
+            default_frames=args.mel_frames,
+            default_strategy=args.frame_strategy,
+            frame_overrides={
+                'cremad': args.cremad_mel_frames,
+                'meld': args.meld_mel_frames,
+            },
+            strategy_overrides={
+                'cremad': args.cremad_frame_strategy,
+                'meld': args.meld_frame_strategy,
+            },
         )
     except ValueError as error:
         parser.error(str(error))
@@ -124,7 +156,7 @@ def main() -> None:
         limit_per_split=args.limit_per_split,
         prior_results_path=args.prior_results,
         resume=not args.no_resume,
-        feature_config=feature_config,
+        feature_configs=feature_configs,
     )
 
     if not args.skip_report:
