@@ -9,6 +9,7 @@ from odev3.build_report import (
     TableBlock,
     _render_docx,
     _render_html,
+    build_report,
 )
 
 
@@ -61,3 +62,33 @@ def test_docx_renderer_writes_headings_paragraphs_and_tables(tmp_path: Path) -> 
     assert 'Konuşmadan duygu tanıma çalışması.' in paragraph_text
     assert len(document.tables) == 1
     assert document.tables[0].cell(1, 2).text == '0.5500'
+
+
+def test_final_report_builds_from_complete_experiment_artifacts(
+    tmp_path: Path,
+) -> None:
+    from docx import Document
+
+    html_path = tmp_path / 'final.html'
+    docx_path = tmp_path / 'final.docx'
+
+    paths = build_report(
+        output_root='odev3/outputs',
+        ablation_root='odev3/feature_ablation',
+        html_path=html_path,
+        docx_path=docx_path,
+    )
+
+    html = paths.html.read_text(encoding='utf-8')
+    document = Document(paths.docx)
+    paragraph_text = '\n'.join(paragraph.text for paragraph in document.paragraphs)
+
+    assert paths.html == html_path
+    assert paths.docx == docx_path
+    assert 'Nihai rapor: 2 veri kümesi, 64 geçerleme/seed koşusu' in html
+    assert 'CREMA-D – 32 Geçerleme Koşusu' in paragraph_text
+    assert 'MELD – 32 Geçerleme Koşusu' in paragraph_text
+    assert 'class="missing"' not in html
+    assert html.count('<table>') == 17
+    assert len(document.tables) == 17
+    assert len(document.inline_shapes) == 4

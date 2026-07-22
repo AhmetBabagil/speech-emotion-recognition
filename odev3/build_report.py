@@ -14,6 +14,15 @@ import pandas as pd
 
 
 DISPLAY = {'cremad': 'CREMA-D', 'meld': 'MELD'}
+EMOTIONS = ('angry', 'disgust', 'fear', 'happy', 'neutral', 'sad')
+EMOTION_DISPLAY = {
+    'angry': 'Kızgın',
+    'disgust': 'Tiksinti',
+    'fear': 'Korku',
+    'happy': 'Mutlu',
+    'neutral': 'Nötr',
+    'sad': 'Üzgün',
+}
 DRIVE_URL = (
     'https://drive.google.com/drive/folders/'
     '1Hbp4WtCGFZjpvQCDxFmqtOmeqq-SMPvW?usp=sharing'
@@ -86,7 +95,7 @@ def _read_json(path: str | Path) -> dict[str, Any]:
 
 
 def _cell(value: Any) -> str:
-    if isinstance(value, bool):
+    if isinstance(value, bool) or type(value).__name__ == 'bool_':
         return 'Evet' if value else 'Hayır'
     if isinstance(value, float):
         return f'{value:.4f}'
@@ -299,3 +308,761 @@ def _report_paths(
         html=Path(html_path) if html_path else default_html,
         docx=Path(docx_path) if docx_path else default_docx,
     )
+
+
+def _stage_name(value: str) -> str:
+    return {
+        'screening': 'Tarama',
+        'refinement': 'İyileştirme',
+        'stability': 'Kararlılık',
+        'quick': 'Hızlı tanı',
+        'full': 'Tam grid',
+    }.get(str(value), str(value))
+
+
+def _hidden_columns(value: Any) -> tuple[str, str, str]:
+    sizes = str(value).split('-') if value is not None else []
+    padded = (sizes + ['-', '-', '-'])[:3]
+    return padded[0], padded[1], padded[2]
+
+
+def _unique_text(frame: pd.DataFrame, column: str) -> str:
+    values = frame[column].dropna().tolist()
+    try:
+        values = sorted(set(values), key=float)
+    except (TypeError, ValueError):
+        values = sorted(set(str(value) for value in values))
+    return ', '.join(_cell(value) for value in values)
+
+
+def _artifact_status(path: Path) -> str:
+    if not path.is_file():
+        return 'Yerel dosya bulunamadı'
+    size_mb = path.stat().st_size / (1024 * 1024)
+    if size_mb >= 0.1:
+        return f'Hazır ({size_mb:.1f} MB)'
+    return f'Hazır ({path.stat().st_size / 1024:.1f} KB)'
+
+
+def _load_report_inputs(
+    output_root: Path,
+) -> tuple[dict[str, Any], dict[str, dict[str, Any]], dict[str, pd.DataFrame]]:
+    summary_path = output_root / 'summary.json'
+    if not summary_path.is_file():
+        raise FileNotFoundError(f'Deney özeti bulunamadı: {summary_path}')
+    summary = _read_json(summary_path)
+    available = summary.get('per_dataset', {})
+    if not available:
+        raise ValueError(f'Özette veri kümesi sonucu yok: {summary_path}')
+
+    results: dict[str, dict[str, Any]] = {}
+    validations: dict[str, pd.DataFrame] = {}
+    for corpus in ('cremad', 'meld'):
+        if corpus not in available:
+            continue
+        result_path = output_root / corpus / 'result.json'
+        validation_path = output_root / corpus / 'validation_results.csv'
+        if not result_path.is_file() or not validation_path.is_file():
+            raise FileNotFoundError(
+                f'{corpus} rapor girdileri eksik: {result_path}, {validation_path}'
+            )
+        results[corpus] = _read_json(result_path)
+        validations[corpus] = pd.read_csv(validation_path)
+    return summary, results, validations
+
+
+def _access_blocks() -> list[ReportBlock]:
+    return [
+        Heading(2, 'Erişim Bilgileri'),
+        TableBlock(
+            ('Alan', 'Bilgi'),
+            (
+                ('Orijinal Veri Seti Adı', 'CREMA-D ve MELD'),
+                ('Proje Grubu', 'Grup 23'),
+                ('Öğrenci', 'Ahmet Babagil – 211101067'),
+                ('Google Drive teslim klasörü', DRIVE_URL),
+                ('GitHub geliştirme dalı', GITHUB_URL),
+            ),
+        ),
+        LinkList(DATASET_LINKS + (('Google Drive', DRIVE_URL), ('GitHub', GITHUB_URL))),
+        Paragraph(
+            'İlk iki aşamada kullanılan CREMA-D ve MELD veri kümeleri '
+            'değişmemiştir. Bu nedenle orijinal veri tekrar çoğaltılmamış; '
+            'Drive teslim klasörü kodu, Git geliştirme geçmişini, en iyi '
+            'modelleri ve ara/nihai CSV, JSON ve PNG çıktılarını barındıracak '
+            'şekilde düzenlenmiştir.'
+        ),
+    ]
+
+
+def _execution_blocks(output_root: Path, results: dict[str, dict[str, Any]]) -> list[ReportBlock]:
+    files = (
+        ('odev3/run_experiment.py', 'Tüm veri kümesi için tarama, yerel iyileştirme, çoklu seed doğrulaması ve tek seferlik test değerlendirmesini çalıştırır.'),
+        ('odev3/features_melspec.py', 'Sesi 16 kHz mono yükler; log-Mel spektrogramı sabit boyuta getirip 4096 elemanlı vektöre dönüştürür.'),
+        ('odev3/dataset.py', 'Özellikleri yapılandırmaya göre cache’ler ve yalnız eğitim katında öğrenilen z-score normalizasyonunu uygular.'),
+        ('odev3/model.py', 'Hazır model kullanmadan yapılandırılabilir PyTorch MLP ağını kurar.'),
+        ('odev3/training.py', 'Ağırlıklı çapraz entropi, AdamW, erken durdurma ve metrik hesaplamalarını gerçekleştirir.'),
+        ('odev3/search_space.py', '16 temel tarama adayını ve kazanan çevresindeki 14 yerel adayı üretir.'),
+        ('odev3/feature_ablation.py', '64/96 kare ve crop/resize Mel temsillerini yalnız geçerleme setinde karşılaştırır.'),
+        ('odev3/pipeline.py', 'Speaker-independent bölmeleri, resume durumunu, model kaydını, tahminleri ve grafik çıktılarını yönetir.'),
+        ('odev3/build_report.py', 'Gerçek deney çıktılarından bu HTML ve DOCX raporlarını üretir.'),
+    )
+    artifact_rows = []
+    for corpus in results:
+        corpus_dir = output_root / corpus
+        for name, purpose in (
+            ('best_model.pt', 'En iyi MLP, normalizasyon ve sınıf ağırlıkları'),
+            ('validation_results.csv', '32 geçerleme deneyinin tam tablosu'),
+            ('best_training_history.csv', 'Seçilen koşunun epoch geçmişi'),
+            ('test_predictions.csv', 'Test örneği tahmin ve olasılıkları'),
+            ('test_confusion_matrix.png', 'Normalize test karmaşıklık matrisi'),
+            ('result.json', 'Bölme, yöntem, model ve metrik özeti'),
+        ):
+            path = corpus_dir / name
+            artifact_rows.append(
+                (DISPLAY[corpus], path.as_posix(), purpose, _artifact_status(path))
+            )
+    return [
+        Heading(2, 'Çalıştırılacak Dosyalar ve Ne Yaptıkları'),
+        TableBlock(('Dosya', 'Görev'), files),
+        Heading(3, 'Tekrarlanabilir Çalıştırma Komutları'),
+        Notice(
+            'Nihai deney: python odev3/run_experiment.py --corpora cremad meld '
+            '--grid-mode report --max-epochs 60 --device cpu --feature-workers 4 '
+            '--cremad-frame-strategy resize --meld-frame-strategy crop_pad'
+        ),
+        Paragraph(
+            'Özellik karşılaştırması: python odev3/feature_ablation.py '
+            '--corpora cremad meld --max-epochs 60 --device cpu '
+            '--feature-workers 4'
+        ),
+        Paragraph('Rapor: python odev3/build_report.py --output-root odev3/outputs'),
+        Heading(3, 'Üretilen Temel Dosyalar'),
+        TableBlock(
+            ('Veri seti', 'Çıktı', 'İçerik', 'Durum'),
+            tuple(artifact_rows),
+        ),
+    ]
+
+
+def _dataset_blocks(results: dict[str, dict[str, Any]]) -> list[ReportBlock]:
+    split_rows = []
+    weight_rows = []
+    for corpus, result in results.items():
+        split = result['split']
+        for key, label in (
+            ('train', 'Eğitim'),
+            ('validation', 'Geçerleme'),
+            ('test', 'Test'),
+        ):
+            details = split[key]
+            counts = details['class_counts']
+            split_rows.append(
+                (
+                    DISPLAY[corpus],
+                    label,
+                    details['records'],
+                    details['speakers'],
+                    *(counts[emotion] for emotion in EMOTIONS),
+                )
+            )
+        weights = result['training_class_weights']
+        weight_rows.append(
+            (DISPLAY[corpus], *(weights[emotion] for emotion in EMOTIONS))
+        )
+
+    return [
+        Heading(2, 'Veri Seti ve Değerlendirme Metrikleri'),
+        Paragraph(
+            'Manifest toplam 5199 ses kaydı içerir: 2480 CREMA-D ve 2719 '
+            'MELD. Her iki veri kümesi kızgın, tiksinti, korku, mutlu, nötr '
+            've üzgün olmak üzere aynı altı sınıfa eşlenmiştir.'
+        ),
+        Paragraph(
+            'Her veri kümesi seed 42 ile konuşmacı-temelli yaklaşık %70 eğitim, '
+            '%15 geçerleme ve %15 test katlarına ayrılmıştır. Aynı konuşmacı '
+            'iki farklı katta bulunmaz. Sonuç JSON dosyalarındaki üç konuşmacı '
+            'kesişimi de boş kümedir. Özellik normalizasyonunun ortalama ve '
+            'standart sapması yalnız eğitim katında öğrenilmiştir.'
+        ),
+        TableBlock(
+            (
+                'Veri seti', 'Kat', 'Kayıt', 'Konuşmacı',
+                'Kızgın', 'Tiksinti', 'Korku', 'Mutlu', 'Nötr', 'Üzgün',
+            ),
+            tuple(split_rows),
+            'Tablo 1. Speaker-independent veri bölmeleri ve sınıf dağılımları',
+        ),
+        Heading(3, 'Sınıf Dengesizliği ve Kayıp Ağırlıkları'),
+        Paragraph(
+            'Eğitim kaybında her sınıf için w_c = N / (K × n_c) ters frekans '
+            'ağırlığı kullanılmıştır. Böylece özellikle MELD’de daha az görülen '
+            'tiksinti ve korku sınıfları kayıp fonksiyonunda daha yüksek katkı '
+            'alır. Ağırlıklar yalnız eğitim etiketlerinden hesaplanmıştır.'
+        ),
+        TableBlock(
+            ('Veri seti', 'Kızgın', 'Tiksinti', 'Korku', 'Mutlu', 'Nötr', 'Üzgün'),
+            tuple(weight_rows),
+            'Tablo 2. Weighted CrossEntropyLoss sınıf ağırlıkları',
+        ),
+        Heading(3, 'Değerlendirme Metrikleri'),
+        BulletList(
+            (
+                'Doğruluk: doğru tahminlerin tüm test örneklerine oranı.',
+                'Dengeli doğruluk: altı sınıfın recall değerlerinin eşit ağırlıklı ortalaması.',
+                'Macro-F1: sınıf F1 değerlerinin eşit ağırlıklı ortalaması; ana model seçim metriğidir.',
+                'Weighted-F1: sınıf destek sayılarıyla ağırlıklandırılmış F1 değeri.',
+                'Sınıf bazında precision, recall ve F1 ile normalize karmaşıklık matrisi.',
+            )
+        ),
+    ]
+
+
+def _ablation_rows(ablation_root: Path) -> tuple[tuple[Any, ...], ...]:
+    rows: list[tuple[Any, ...]] = []
+    for corpus in ('cremad', 'meld'):
+        path = ablation_root / corpus / 'feature_ablation.csv'
+        if not path.is_file():
+            continue
+        frame = pd.read_csv(path).sort_values('trial')
+        for row in frame.itertuples(index=False):
+            rows.append(
+                (
+                    DISPLAY[corpus],
+                    int(row.trial),
+                    row.frame_strategy,
+                    int(row.n_frames),
+                    int(row.vector_size),
+                    int(row.best_epoch),
+                    row.val_accuracy,
+                    row.val_balanced_accuracy,
+                    row.val_macro_f1,
+                    int(row.rank) == 1,
+                )
+            )
+    return tuple(rows)
+
+
+def _method_blocks(
+    results: dict[str, dict[str, Any]],
+    ablation_root: Path,
+) -> list[ReportBlock]:
+    architecture_rows = []
+    for corpus, result in results.items():
+        config = result['best_config']
+        hidden = config['hidden_dims']
+        architecture = '4096 → ' + ' → '.join(str(size) for size in hidden) + ' → 6'
+        architecture_rows.append(
+            (
+                DISPLAY[corpus],
+                result['feature']['frame_strategy'],
+                architecture,
+                len(hidden),
+                config['activation'],
+                config['batch_norm'],
+                config['dropout'],
+                result['model_parameters'],
+            )
+        )
+    blocks: list[ReportBlock] = [
+        Heading(2, 'Yöntem'),
+        Heading(3, 'Mel-Spectrogram Vektörü'),
+        Paragraph(
+            'Sesler librosa ile 16 kHz ve mono yüklenmiştir. '
+            'librosa.feature.melspectrogram çağrısında 64 Mel bandı, n_fft=1024, '
+            'hop_length=512, 20–8000 Hz ve power=2 kullanılmış; güç değerleri '
+            'top_db=80 ile log-dB ölçeğine dönüştürülmüştür. 64×64 matris '
+            'satır-major düzleştirilerek tam 4096 boyutlu vektör elde edilmiştir. '
+            'PCA veya önceden eğitilmiş bir öznitelik modeli kullanılmamıştır.'
+        ),
+    ]
+    ablation_rows = _ablation_rows(ablation_root)
+    if ablation_rows:
+        blocks.extend(
+            [
+                Paragraph(
+                    'Zaman temsilini test setine dokunmadan seçmek için Mel bant '
+                    'sayısı ve referans MLP sabit tutulmuş; 64/96 kare ile merkez '
+                    'crop-pad/tüm konuşmayı resize seçenekleri karşılaştırılmıştır.'
+                ),
+                TableBlock(
+                    (
+                        'Veri seti', 'Deney', 'Zaman işlemi', 'Kare', 'Boyut',
+                        'En iyi ep.', 'Doğ.', 'Deng. Doğ.', 'Macro-F1', 'Seçildi',
+                    ),
+                    ablation_rows,
+                    'Tablo 3. Yalnız geçerleme katında Mel özellik ablation sonuçları',
+                ),
+                Paragraph(
+                    'CREMA-D’de 64-kare resize macro-F1=0.4667 ile 64-kare '
+                    'crop-pad referansını (0.4645) geçti. MELD’de ise 64-kare '
+                    'crop-pad 0.2525 ile resize ve 96-kare seçeneklerinden daha '
+                    'iyi kaldı. Bu nedenle veri kümelerine aynı zaman işlemi '
+                    'zorlanmamış; CREMA-D resize, MELD crop-pad kullanmıştır.'
+                ),
+            ]
+        )
+    blocks.extend(
+        [
+            Heading(3, 'Nihai MLP Yapısı'),
+            Paragraph(
+                'MLP tamamen PyTorch ile sıfırdan kurulmuştur. Her gizli blok '
+                'Linear → isteğe bağlı BatchNorm1d → aktivasyon → Dropout '
+                'sırasındadır. Çıkış katmanı altı logit üretir. Eğitimde '
+                'weighted CrossEntropyLoss, AdamW, gradient norm clipping '
+                '(1.0) ve validation macro-F1 tabanlı erken durdurma '
+                'kullanılmıştır. Üst sınır 60 epoch’tur.'
+            ),
+            TableBlock(
+                (
+                    'Veri seti', 'Zaman işlemi', 'Katman dizisi', 'Gizli katman',
+                    'Aktivasyon', 'Batch norm', 'Dropout', 'Eğitilebilir parametre',
+                ),
+                tuple(architecture_rows),
+                'Tablo 4. Nihai veri-kümesine özel MLP mimarileri',
+            ),
+        ]
+    )
+    return blocks
+
+
+def _hyperparameter_summary_rows(
+    validations: dict[str, pd.DataFrame],
+) -> tuple[tuple[Any, ...], ...]:
+    rows = []
+    for corpus, frame in validations.items():
+        rows.append(
+            (
+                DISPLAY[corpus],
+                len(frame),
+                _unique_text(frame, 'batch_size'),
+                _unique_text(frame, 'learning_rate'),
+                _unique_text(frame, 'patience'),
+                _unique_text(frame, 'hidden_dims'),
+                _unique_text(frame, 'activation'),
+                _unique_text(frame, 'batch_norm'),
+                _unique_text(frame, 'dropout'),
+                _unique_text(frame, 'weight_decay'),
+                _unique_text(frame, 'seed'),
+            )
+        )
+    return tuple(rows)
+
+
+def _trial_parameter_rows(frame: pd.DataFrame) -> tuple[tuple[Any, ...], ...]:
+    rows = []
+    for row in frame.sort_values('trial').itertuples(index=False):
+        h1, h2, h3 = _hidden_columns(row.hidden_dims)
+        rows.append(
+            (
+                int(row.trial),
+                _stage_name(row.search_stage),
+                int(row.seed),
+                row.learning_rate,
+                int(row.batch_size),
+                int(row.patience),
+                int(row.hidden_layers),
+                h1,
+                h2,
+                h3,
+                row.activation,
+                row.batch_norm,
+                row.dropout,
+                row.weight_decay,
+            )
+        )
+    return tuple(rows)
+
+
+def _trial_metric_rows(frame: pd.DataFrame) -> tuple[tuple[Any, ...], ...]:
+    rows = []
+    for row in frame.sort_values('trial').itertuples(index=False):
+        rows.append(
+            (
+                int(row.trial),
+                int(row.best_epoch),
+                int(row.epochs_trained),
+                row.stopped_early,
+                row.val_loss,
+                row.val_accuracy,
+                row.val_balanced_accuracy,
+                row.val_macro_f1,
+                row.val_weighted_f1,
+                row.selected,
+            )
+        )
+    return tuple(rows)
+
+
+def _stability_rows(
+    results: dict[str, dict[str, Any]],
+    validations: dict[str, pd.DataFrame],
+) -> tuple[tuple[Any, ...], ...]:
+    rows = []
+    for corpus, result in results.items():
+        stability = result.get('stability')
+        if not stability:
+            continue
+        frame = validations[corpus]
+        selected = frame[frame['config_id'] == stability['config_id']].sort_values('seed')
+        for row in selected.itertuples(index=False):
+            rows.append(
+                (
+                    DISPLAY[corpus],
+                    int(row.seed),
+                    int(row.best_epoch),
+                    row.val_accuracy,
+                    row.val_balanced_accuracy,
+                    row.val_macro_f1,
+                )
+            )
+        rows.append(
+            (
+                DISPLAY[corpus] + ' ortalama ± std',
+                '-',
+                '-',
+                stability['val_accuracy_mean'],
+                stability['val_balanced_accuracy_mean'],
+                f"{stability['val_macro_f1_mean']:.4f} ± {stability['val_macro_f1_std']:.4f}",
+            )
+        )
+    return tuple(rows)
+
+
+def _validation_blocks(
+    output_root: Path,
+    results: dict[str, dict[str, Any]],
+    validations: dict[str, pd.DataFrame],
+) -> list[ReportBlock]:
+    blocks: list[ReportBlock] = [
+        Heading(2, 'Model Geçerleme'),
+        Paragraph(
+            'Her veri kümesinde önce tüm temel hiperparametre gruplarını tek '
+            'faktörlü ve yorumlanabilir biçimde kapsayan 16 tarama deneyi '
+            'çalıştırılmıştır. Tarama kazananının çevresinde 14 yerel '
+            'iyileştirme denenmiş; son yapı seed 42, 143 ve 244 ile toplam üç '
+            'kez ölçülmüştür. Model seçimi yalnız validation macro-F1, eşitlikte '
+            'dengeli doğruluk ve validation loss ile yapılmıştır. Test '
+            'özellikleri 32 koşu tamamlanmadan yüklenmemiştir.'
+        ),
+        TableBlock(
+            (
+                'Veri seti', 'Koşu', 'Batch', 'LR', 'Patience', 'Gizli yapılar',
+                'Aktivasyon', 'BN', 'Dropout', 'Weight decay', 'Seed',
+            ),
+            _hyperparameter_summary_rows(validations),
+            'Tablo 5. Gerçekten taranan hiperparametre değerleri',
+        ),
+    ]
+    table_number = 6
+    for corpus, frame in validations.items():
+        display = DISPLAY[corpus]
+        blocks.extend(
+            [
+                Heading(3, f'{display} – 32 Geçerleme Koşusu'),
+                TableBlock(
+                    (
+                        'Deney', 'Aşama', 'Seed', 'LR', 'Batch', 'Pat.',
+                        'Katman', 'H1', 'H2', 'H3', 'Akt.', 'BN', 'Drop.', 'WD',
+                    ),
+                    _trial_parameter_rows(frame),
+                    f'Tablo {table_number}. {display} hiperparametre deneyleri',
+                ),
+                TableBlock(
+                    (
+                        'Deney', 'En iyi ep.', 'Eğitilen ep.', 'Erken durdu',
+                        'Val loss', 'Doğ.', 'Deng. Doğ.', 'Macro-F1',
+                        'Weighted-F1', 'Seçildi',
+                    ),
+                    _trial_metric_rows(frame),
+                    f'Tablo {table_number + 1}. {display} geçerleme performansları',
+                ),
+            ]
+        )
+        table_number += 2
+    blocks.extend(
+        [
+            Heading(3, 'Çoklu Seed Kararlılık Sonuçları'),
+            TableBlock(
+                ('Veri seti', 'Seed', 'En iyi epoch', 'Doğ.', 'Deng. Doğ.', 'Macro-F1'),
+                _stability_rows(results, validations),
+                f'Tablo {table_number}. Seçilen yapıların seed duyarlılığı',
+            ),
+        ]
+    )
+    for corpus in results:
+        blocks.append(
+            ImageBlock(
+                output_root / corpus / 'best_training_history.png',
+                f'{DISPLAY[corpus]} eğitim ve geçerleme eğrileri',
+                f'{DISPLAY[corpus]} seçilmiş MLP için loss ve macro-F1 eğitim geçmişi.',
+            )
+        )
+    return blocks
+
+
+def _overall_test_rows(results: dict[str, dict[str, Any]]) -> tuple[tuple[Any, ...], ...]:
+    rows = []
+    for corpus, result in results.items():
+        test = result['test']
+        rows.append(
+            (
+                DISPLAY[corpus],
+                result['selected_seed'],
+                result['best_epoch'],
+                test['accuracy'],
+                test['balanced_accuracy'],
+                test['macro_f1'],
+                test['weighted_f1'],
+                result['test_loss'],
+            )
+        )
+    return tuple(rows)
+
+
+def _per_class_rows(results: dict[str, dict[str, Any]]) -> tuple[tuple[Any, ...], ...]:
+    rows = []
+    for corpus, result in results.items():
+        per_class = result['test']['per_class']
+        for emotion in EMOTIONS:
+            metrics = per_class[emotion]
+            rows.append(
+                (
+                    DISPLAY[corpus],
+                    EMOTION_DISPLAY[emotion],
+                    metrics['precision'],
+                    metrics['recall'],
+                    metrics['f1'],
+                    metrics['support'],
+                )
+            )
+    return tuple(rows)
+
+
+def _comparison_rows(path: Path) -> tuple[tuple[Any, ...], ...]:
+    if not path.is_file():
+        return ()
+    frame = pd.read_csv(path)
+    rows = []
+    for row in frame.itertuples(index=False):
+        rows.append(
+            (
+                DISPLAY.get(row.corpus, row.corpus),
+                row.model,
+                row.feature_dim,
+                row.pca_dim,
+                row.test_accuracy,
+                row.test_balanced_accuracy,
+                row.test_macro_f1,
+                row.test_weighted_f1,
+            )
+        )
+    return tuple(rows)
+
+
+def _result_analysis(results: dict[str, dict[str, Any]], comparison_path: Path) -> list[ReportBlock]:
+    blocks: list[ReportBlock] = []
+    comparison = pd.read_csv(comparison_path) if comparison_path.is_file() else None
+    for corpus, result in results.items():
+        display = DISPLAY[corpus]
+        validation_f1 = result['validation']['macro_f1']
+        test_f1 = result['test']['macro_f1']
+        gap = validation_f1 - test_f1
+        per_class = result['test']['per_class']
+        strongest = max(per_class, key=lambda name: per_class[name]['f1'])
+        weakest = min(per_class, key=lambda name: per_class[name]['f1'])
+        text = (
+            f'{display}: seçilen modelin validation macro-F1 değeri '
+            f'{validation_f1:.4f}, held-out test macro-F1 değeri {test_f1:.4f}; '
+            f'fark {gap:.4f} olmuştur. En güçlü sınıf '
+            f'{EMOTION_DISPLAY[strongest]} (F1={per_class[strongest]["f1"]:.4f}), '
+            f'en zayıf sınıf {EMOTION_DISPLAY[weakest]} '
+            f'(F1={per_class[weakest]["f1"]:.4f}) olmuştur.'
+        )
+        if comparison is not None:
+            prior = comparison[
+                (comparison['corpus'] == corpus)
+                & ~comparison['model'].astype(str).str.contains('MLP', case=False)
+            ].sort_values('test_macro_f1', ascending=False)
+            if not prior.empty:
+                best = prior.iloc[0]
+                text += (
+                    f' Önceki aşamalardaki en yüksek test macro-F1 '
+                    f'{best["model"]} ile {best["test_macro_f1"]:.4f}’tür.'
+                )
+        blocks.append(Paragraph(text))
+    blocks.append(
+        Paragraph(
+            'CREMA-D MLP, Karar Ağacı sonucunu geçmesine rağmen Gradient '
+            'Boosting, Rastgele Orman ve KNN’in altında kalmıştır. MELD MLP de '
+            'Karar Ağacından iyi, diğer üç klasik modelden düşüktür. Bu durum '
+            'özellikle MELD’de yalnız akustik Mel vektörünün diyalog bağlamı ve '
+            'metinsel anlamı temsil edememesi, ayrıca konuşmacı-bağımsız testte '
+            'alan kayması görülmesiyle uyumludur. Sonuçlar saklanmamış veya '
+            'test setine göre yeniden seçilmemiştir.'
+        )
+    )
+    return blocks
+
+
+def _test_blocks(output_root: Path, results: dict[str, dict[str, Any]]) -> list[ReportBlock]:
+    comparison_path = output_root / 'model_comparison.csv'
+    blocks: list[ReportBlock] = [
+        Heading(2, 'Deney Sonuçları ve Değerlendirme'),
+        TableBlock(
+            (
+                'Veri seti', 'Seed', 'En iyi ep.', 'Doğ.', 'Deng. Doğ.',
+                'Macro-F1', 'Weighted-F1', 'Test loss',
+            ),
+            _overall_test_rows(results),
+            'Nihai held-out test sonuçları',
+        ),
+        TableBlock(
+            ('Veri seti', 'Sınıf', 'Precision', 'Recall', 'F1', 'Destek'),
+            _per_class_rows(results),
+            'Sınıf bazında held-out test sonuçları',
+        ),
+    ]
+    for corpus in results:
+        blocks.append(
+            ImageBlock(
+                output_root / corpus / 'test_confusion_matrix.png',
+                f'{DISPLAY[corpus]} normalize karmaşıklık matrisi',
+                f'{DISPLAY[corpus]} held-out test normalize karmaşıklık matrisi.',
+            )
+        )
+    comparison_rows = _comparison_rows(comparison_path)
+    if comparison_rows:
+        blocks.extend(
+            [
+                Heading(3, 'Önceki Aşamalarla Model Karşılaştırması'),
+                TableBlock(
+                    (
+                        'Veri seti', 'Model', 'Özellik', 'PCA', 'Doğ.',
+                        'Deng. Doğ.', 'Macro-F1', 'Weighted-F1',
+                    ),
+                    comparison_rows,
+                    'KNN, Karar Ağacı, Rastgele Orman, Gradient Boosting ve MLP test karşılaştırması',
+                ),
+            ]
+        )
+    blocks.extend(_result_analysis(results, comparison_path))
+    return blocks
+
+
+def _conclusion_blocks(results: dict[str, dict[str, Any]]) -> list[ReportBlock]:
+    total_trials = sum(int(result['num_trials']) for result in results.values())
+    return [
+        Heading(2, 'Sonuç ve İleride Yapılacaklar'),
+        Paragraph(
+            f'Bu aşamada {len(results)} veri kümesi için toplam {total_trials} '
+            'hiperparametre/seed koşusu ve sekiz özellik ablation koşusu '
+            'tamamlanmıştır. Her veri kümesi için bağımsız, sıfırdan PyTorch '
+            'MLP modeli; train-only normalizasyon; sınıf ağırlıklı kayıp; erken '
+            'durdurma; kaydedilmiş checkpoint; test tahminleri ve karmaşıklık '
+            'matrisi üretilmiştir.'
+        ),
+        Heading(3, 'İleride Yapılacaklar'),
+        BulletList(
+            (
+                'Test setine dokunmadan eğitim katında gürültü, zaman kaydırma ve kontrollü SpecAugment veri artırımı denenmesi.',
+                'MELD’de çok uzun veya hatalı kesilmiş kayıtların eğitimden önce otomatik süre/sessizlik kalite kontrolünden geçirilmesi.',
+                'Seed duyarlılığını azaltmak için daha fazla tekrar ve doğrulama temelli olasılık ortalamalı MLP ensemble araştırılması.',
+                'MELD için sonraki proje aşamalarında konuşma bağlamı ve metin bilgisinin, ödev kısıtlarına uygun ayrı bir deney olarak değerlendirilmesi.',
+                'Model kalibrasyonu, hata örneklerinin konuşmacı ve süre bazında incelenmesi ve sınıf bazlı veri artırımı.',
+            )
+        ),
+        Heading(3, 'Ödev Koşulları Denetimi'),
+        TableBlock(
+            ('Koşul', 'Durum', 'Kanıt'),
+            (
+                ('PyTorch MLP sıfırdan geliştirildi', True, 'odev3/model.py ve best_model.pt'),
+                ('librosa Mel vektörü en az 4000 boyutlu', True, '64×64 = 4096'),
+                ('PCA kullanılmadı', True, 'result.json feature.pca=false'),
+                ('Sınıf dengesizliği ağırlıklı kayıpla ele alındı', True, 'training_class_weights'),
+                ('Erken durdurma uygulandı', True, '32 koşunun history/CSV kayıtları'),
+                ('Tüm temel MLP hiperparametreleri denendi', True, 'validation_results.csv tabloları'),
+                ('En iyi modeller kaydedildi', True, 'cremad/meld best_model.pt'),
+                ('Held-out test ve karmaşıklık matrisi verildi', True, 'test_predictions.csv ve PNG'),
+                ('Önceki aşama modelleriyle karşılaştırıldı', True, 'model_comparison.csv'),
+            ),
+        ),
+    ]
+
+
+def _build_report_blocks(
+    output_root: Path,
+    ablation_root: Path,
+) -> tuple[list[ReportBlock], bool]:
+    summary, results, validations = _load_report_inputs(output_root)
+    diagnostic = bool(summary.get('diagnostic_limit_per_split')) or summary.get(
+        'grid_mode'
+    ) != 'report'
+    total_trials = sum(result['num_trials'] for result in results.values())
+    blocks: list[ReportBlock] = [
+        Heading(1, 'YAP 470 / BİL 570 – Proje İlerleme Raporu 3'),
+        Paragraph('Proje konusu: Konuşmadan Duygu Tanıma (Speech Emotion Recognition)'),
+        Paragraph('Grup 23 – Ahmet Babagil – 211101067'),
+    ]
+    if diagnostic:
+        blocks.append(
+            Notice(
+                'Bu rapor tanısal/kısıtlı bir koşudan üretildi; nihai teslim '
+                'raporu olarak kullanılmamalıdır.'
+            )
+        )
+    else:
+        blocks.append(
+            Notice(
+                f'Nihai rapor: {len(results)} veri kümesi, {total_trials} '
+                'geçerleme/seed koşusu ve held-out test sonuçları gerçek deney '
+                'dosyalarından otomatik oluşturulmuştur.'
+            )
+        )
+    blocks.extend(_access_blocks())
+    blocks.extend(_execution_blocks(output_root, results))
+    blocks.extend(_dataset_blocks(results))
+    blocks.extend(_method_blocks(results, ablation_root))
+    blocks.extend(_validation_blocks(output_root, results, validations))
+    blocks.extend(_test_blocks(output_root, results))
+    blocks.extend(_conclusion_blocks(results))
+    return blocks, diagnostic
+
+
+def build_report(
+    *,
+    output_root: str | Path = 'odev3/outputs',
+    ablation_root: str | Path = 'odev3/feature_ablation',
+    html_path: str | Path | None = None,
+    docx_path: str | Path | None = None,
+) -> ReportPaths:
+    '''Build final HTML and Word reports from persisted experiment artifacts.'''
+
+    output_root = Path(output_root)
+    blocks, diagnostic = _build_report_blocks(output_root, Path(ablation_root))
+    paths = _report_paths(output_root, diagnostic, html_path, docx_path)
+    title = 'YAP 470 / BİL 570 – Proje İlerleme Raporu 3'
+    _render_html(blocks, paths.html, title)
+    _render_docx(blocks, paths.docx, title)
+    return paths
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--output-root', default='odev3/outputs')
+    parser.add_argument('--ablation-root', default='odev3/feature_ablation')
+    parser.add_argument('--html')
+    parser.add_argument('--docx')
+    args = parser.parse_args()
+    paths = build_report(
+        output_root=args.output_root,
+        ablation_root=args.ablation_root,
+        html_path=args.html,
+        docx_path=args.docx,
+    )
+    print(f'HTML rapor: {paths.html}')
+    print(f'DOCX rapor: {paths.docx}')
+
+
+if __name__ == '__main__':
+    main()
