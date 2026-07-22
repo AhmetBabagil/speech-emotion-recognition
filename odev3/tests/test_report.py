@@ -1,5 +1,6 @@
 '''Tests for HTML and Word reports generated from experiment artifacts.'''
 
+import json
 from pathlib import Path
 
 from odev3.build_report import (
@@ -7,10 +8,27 @@ from odev3.build_report import (
     LinkList,
     Paragraph,
     TableBlock,
+    _ablation_rows,
+    _calibration_rows,
     _render_docx,
     _render_html,
     build_report,
 )
+
+
+def test_report_helpers_load_expanded_ablation_and_calibration() -> None:
+    ablation_rows = _ablation_rows(Path('odev3/feature_ablation'))
+    summary = json.loads(
+        Path('odev3/outputs/summary.json').read_text(encoding='utf-8')
+    )
+    calibration_rows = _calibration_rows(summary['per_dataset'])
+
+    assert len(ablation_rows) == 16
+    assert {row[3] for row in ablation_rows} == {64, 80, 96}
+    assert sum(bool(row[-1]) for row in ablation_rows) == 2
+    assert len(calibration_rows) == 2
+    assert calibration_rows[0][4] == 0.24550337379223833
+    assert calibration_rows[1][4] == 0.10489513621080754
 
 
 def test_html_renderer_preserves_turkish_text_and_escapes_content(
@@ -91,7 +109,12 @@ def test_final_report_builds_from_complete_experiment_artifacts(
     assert 'Sınıf-korumalı bootstrap ile held-out test güven aralıkları' in html
     assert '0.3754' in html
     assert '2000 tekrarlı percentile bootstrap' in paragraph_text
+    assert 'Held-out Test Olasılık Kalibrasyonu' in paragraph_text
+    assert '0.2455' in html
+    assert '96×64 crop-pad macro-F1=0.4707' in paragraph_text
+    assert '16 özellik ablation koşusu' in paragraph_text
+    assert 'temperature scaling' in paragraph_text
     assert 'class="missing"' not in html
-    assert html.count('<table>') == 18
-    assert len(document.tables) == 18
+    assert html.count('<table>') == 19
+    assert len(document.tables) == 19
     assert len(document.inline_shapes) == 4

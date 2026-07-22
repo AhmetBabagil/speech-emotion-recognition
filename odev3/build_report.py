@@ -402,9 +402,11 @@ def _execution_blocks(output_root: Path, results: dict[str, dict[str, Any]]) -> 
         ('odev3/dataset.py', 'Özellikleri yapılandırmaya göre cache’ler ve yalnız eğitim katında öğrenilen z-score normalizasyonunu uygular.'),
         ('odev3/model.py', 'Hazır model kullanmadan yapılandırılabilir PyTorch MLP ağını kurar.'),
         ('odev3/training.py', 'Ağırlıklı çapraz entropi, AdamW, erken durdurma ve metrik hesaplamalarını gerçekleştirir.'),
+        ('odev3/uncertainty.py', 'Held-out sınıflandırma metrikleri için sınıf-korumalı bootstrap güven aralıklarını hesaplar.'),
+        ('odev3/calibration.py', 'Test olasılıklarından NLL, Brier, ECE ve güven aralığı özetlerini üretir.'),
         ('odev3/search_space.py', '16 temel tarama adayını ve kazanan çevresindeki 14 yerel adayı üretir.'),
-        ('odev3/feature_ablation.py', '64/96 kare ve crop/resize Mel temsillerini yalnız geçerleme setinde karşılaştırır.'),
-        ('odev3/pipeline.py', 'Speaker-independent bölmeleri, resume durumunu, model kaydını, tahminleri ve grafik çıktılarını yönetir.'),
+        ('odev3/feature_ablation.py', '64/80/96 Mel, 64/96 kare ve crop/resize temsillerini yalnız geçerleme setinde karşılaştırır.'),
+        ('odev3/pipeline.py', 'Speaker-independent bölmeleri, resume durumunu, model kaydını, tahminleri, belirsizliği ve kalibrasyonu yönetir.'),
         ('odev3/build_report.py', 'Gerçek deney çıktılarından bu HTML ve DOCX raporlarını üretir.'),
     )
     artifact_rows = []
@@ -415,6 +417,8 @@ def _execution_blocks(output_root: Path, results: dict[str, dict[str, Any]]) -> 
             ('validation_results.csv', '32 geçerleme deneyinin tam tablosu'),
             ('best_training_history.csv', 'Seçilen koşunun epoch geçmişi'),
             ('test_predictions.csv', 'Test örneği tahmin ve olasılıkları'),
+            ('test_uncertainty.json', 'Test metriklerinin %95 bootstrap güven aralıkları'),
+            ('test_calibration.json', 'NLL, Brier, ECE ve güven aralığı kalibrasyon özeti'),
             ('test_confusion_matrix.png', 'Normalize test karmaşıklık matrisi'),
             ('result.json', 'Bölme, yöntem, model ve metrik özeti'),
         ):
@@ -513,6 +517,9 @@ def _dataset_blocks(results: dict[str, dict[str, Any]]) -> list[ReportBlock]:
                 'Macro-F1: sınıf F1 değerlerinin eşit ağırlıklı ortalaması; ana model seçim metriğidir.',
                 'Weighted-F1: sınıf destek sayılarıyla ağırlıklandırılmış F1 değeri.',
                 'Sınıf bazında precision, recall ve F1 ile normalize karmaşıklık matrisi.',
+                'Negatif log-olabilirlik (NLL): doğru sınıfa verilen olasılığı cezalandırır; düşük değer daha iyidir.',
+                'Çok sınıflı Brier skoru: altı olasılığın one-hot hedefe toplam karesel uzaklığıdır; düşük değer daha iyidir.',
+                'Expected Calibration Error (ECE): 10 eşit genişlikli güven bininde doğruluk-güven farkının örnek oranıyla ağırlıklı ortalamasıdır; düşük değer daha iyidir.',
             )
         ),
     ]
@@ -531,6 +538,7 @@ def _ablation_rows(ablation_root: Path) -> tuple[tuple[Any, ...], ...]:
                     DISPLAY[corpus],
                     int(row.trial),
                     row.frame_strategy,
+                    int(row.n_mels),
                     int(row.n_frames),
                     int(row.vector_size),
                     int(row.best_epoch),
@@ -541,6 +549,57 @@ def _ablation_rows(ablation_root: Path) -> tuple[tuple[Any, ...], ...]:
                 )
             )
     return tuple(rows)
+
+
+def _ablation_findings(
+    ablation_root: Path,
+    results: dict[str, dict[str, Any]],
+) -> str:
+    findings: list[str] = []
+    confirmation_needed = False
+    for corpus, result in results.items():
+        path = ablation_root / corpus / 'feature_ablation.csv'
+        if not path.is_file():
+            continue
+        frame = pd.read_csv(path).sort_values('rank')
+        winner = frame.iloc[0]
+        selected_feature = result['feature']
+        selected_rows = frame[
+            (frame['n_mels'] == int(selected_feature['n_mels']))
+            & (frame['n_frames'] == int(selected_feature['n_frames']))
+            & (frame['frame_strategy'] == selected_feature['frame_strategy'])
+        ]
+        winner_label = (
+            f'{int(winner["n_mels"])}×{int(winner["n_frames"])} '
+            f'{str(winner["frame_strategy"]).replace("_", "-")}'
+        )
+        sentence = (
+            f'{DISPLAY[corpus]} için {winner_label} macro-F1='
+            f'{winner["val_macro_f1"]:.4f} ile birinci olmuştur.'
+        )
+        if not selected_rows.empty:
+            selected = selected_rows.iloc[0]
+            gain = float(winner['val_macro_f1'] - selected['val_macro_f1'])
+            same_candidate = str(winner['feature_fingerprint']) == str(
+                selected['feature_fingerprint']
+            )
+            if same_candidate:
+                sentence += ' Ana 4096-boyutlu temsil liderliğini korumuştur.'
+            else:
+                confirmation_needed = True
+                sentence += (
+                    ' Ana 4096-boyutlu temsile göre tek-seed fark '
+                    f'{gain:+.4f} olmuştur.'
+                )
+        findings.append(sentence)
+    if confirmation_needed:
+        findings.append(
+            'Genişletilmiş aday tek seed ile ve yalnız validation katında '
+            'değerlendirildiğinden, küçük fark nihai checkpoint’i test sonucuna '
+            'göre geriye dönük değiştirmek için kullanılmamış; çoklu-seed '
+            'doğrulama adayı olarak kaydedilmiştir.'
+        )
+    return ' '.join(findings)
 
 
 def _method_blocks(
@@ -581,25 +640,20 @@ def _method_blocks(
         blocks.extend(
             [
                 Paragraph(
-                    'Zaman temsilini test setine dokunmadan seçmek için Mel bant '
-                    'sayısı ve referans MLP sabit tutulmuş; 64/96 kare ile merkez '
-                    'crop-pad/tüm konuşmayı resize seçenekleri karşılaştırılmıştır.'
+                    'Zaman ve frekans temsilini test setine dokunmadan incelemek '
+                    'için referans MLP ile seed 42 sabit tutulmuş; 64/80/96 Mel '
+                    'bandı, 64/96 kare ve merkez crop-pad/tüm konuşmayı resize '
+                    'seçeneklerinden oluşan sekiz aday karşılaştırılmıştır.'
                 ),
                 TableBlock(
                     (
-                        'Veri seti', 'Deney', 'Zaman işlemi', 'Kare', 'Boyut',
+                        'Veri seti', 'Deney', 'Zaman işlemi', 'Mel', 'Kare', 'Boyut',
                         'En iyi ep.', 'Doğ.', 'Deng. Doğ.', 'Macro-F1', 'Seçildi',
                     ),
                     ablation_rows,
                     'Tablo 3. Yalnız geçerleme katında Mel özellik ablation sonuçları',
                 ),
-                Paragraph(
-                    'CREMA-D’de 64-kare resize macro-F1=0.4667 ile 64-kare '
-                    'crop-pad referansını (0.4645) geçti. MELD’de ise 64-kare '
-                    'crop-pad 0.2525 ile resize ve 96-kare seçeneklerinden daha '
-                    'iyi kaldı. Bu nedenle veri kümelerine aynı zaman işlemi '
-                    'zorlanmamış; CREMA-D resize, MELD crop-pad kullanmıştır.'
-                ),
+                Paragraph(_ablation_findings(ablation_root, results)),
             ]
         )
     blocks.extend(
@@ -869,6 +923,48 @@ def _uncertainty_rows(
     return tuple(rows)
 
 
+def _calibration_rows(
+    results: dict[str, dict[str, Any]],
+) -> tuple[tuple[Any, ...], ...]:
+    rows = []
+    for corpus, result in results.items():
+        calibration = result.get('test_calibration')
+        if not calibration:
+            continue
+        rows.append(
+            (
+                DISPLAY[corpus],
+                calibration['num_bins'],
+                calibration['negative_log_likelihood'],
+                calibration['multiclass_brier_score'],
+                calibration['expected_calibration_error'],
+                calibration['maximum_calibration_error'],
+                calibration['mean_confidence'],
+                calibration['accuracy'],
+                calibration['confidence_minus_accuracy'],
+            )
+        )
+    return tuple(rows)
+
+
+def _calibration_analysis(results: dict[str, dict[str, Any]]) -> str:
+    findings = []
+    for corpus, result in results.items():
+        calibration = result.get('test_calibration')
+        if not calibration:
+            continue
+        gap = float(calibration['confidence_minus_accuracy'])
+        direction = 'aşırı güvenlidir' if gap > 0.0 else 'eksik güvenlidir'
+        findings.append(
+            f'{DISPLAY[corpus]} modelinin ortalama güveni '
+            f'{calibration["mean_confidence"]:.4f}, doğruluğu '
+            f'{calibration["accuracy"]:.4f} ve farkı {gap:+.4f} olduğundan model '
+            f'{direction}; ECE={calibration["expected_calibration_error"]:.4f} '
+            f'olarak ölçülmüştür.'
+        )
+    return ' '.join(findings)
+
+
 def _comparison_rows(path: Path) -> tuple[tuple[Any, ...], ...]:
     if not path.is_file():
         return ()
@@ -968,6 +1064,29 @@ def _test_blocks(output_root: Path, results: dict[str, dict[str, Any]]) -> list[
                 ),
             ]
         )
+    calibration_rows = _calibration_rows(results)
+    if calibration_rows:
+        blocks.extend(
+            [
+                Heading(3, 'Held-out Test Olasılık Kalibrasyonu'),
+                TableBlock(
+                    (
+                        'Veri seti', 'Bin', 'NLL', 'Brier', 'ECE', 'Maks. CE',
+                        'Ort. güven', 'Doğ.', 'Güven−doğ.',
+                    ),
+                    calibration_rows,
+                    'Nihai MLP test olasılıklarının kalibrasyon sonuçları',
+                ),
+                Paragraph(_calibration_analysis(results)),
+                Paragraph(
+                    'Kalibrasyon, model ve hiperparametre seçimi tamamlandıktan '
+                    'sonra kaydedilen held-out test olasılıklarında hesaplanmıştır. '
+                    'ECE, en yüksek sınıf olasılığına göre 10 eşit genişlikli '
+                    'bin kullanır. Temperature scaling gibi test sonucuna göre '
+                    'sonradan olasılık düzeltmesi uygulanmamıştır.'
+                ),
+            ]
+        )
     blocks.append(
         TableBlock(
             ('Veri seti', 'Sınıf', 'Precision', 'Recall', 'F1', 'Destek'),
@@ -1002,17 +1121,21 @@ def _test_blocks(output_root: Path, results: dict[str, dict[str, Any]]) -> list[
     return blocks
 
 
-def _conclusion_blocks(results: dict[str, dict[str, Any]]) -> list[ReportBlock]:
+def _conclusion_blocks(
+    results: dict[str, dict[str, Any]],
+    ablation_root: Path,
+) -> list[ReportBlock]:
     total_trials = sum(int(result['num_trials']) for result in results.values())
+    feature_trials = len(_ablation_rows(ablation_root))
     return [
         Heading(2, 'Sonuç ve İleride Yapılacaklar'),
         Paragraph(
             f'Bu aşamada {len(results)} veri kümesi için toplam {total_trials} '
-            'hiperparametre/seed koşusu ve sekiz özellik ablation koşusu '
+            f'hiperparametre/seed koşusu ve {feature_trials} özellik ablation koşusu '
             'tamamlanmıştır. Her veri kümesi için bağımsız, sıfırdan PyTorch '
             'MLP modeli; train-only normalizasyon; sınıf ağırlıklı kayıp; erken '
-            'durdurma; kaydedilmiş checkpoint; test tahminleri ve karmaşıklık '
-            'matrisi üretilmiştir.'
+            'durdurma; kaydedilmiş checkpoint; test tahminleri, karmaşıklık '
+            'matrisi, bootstrap belirsizliği ve kalibrasyon özeti üretilmiştir.'
         ),
         Heading(3, 'İleride Yapılacaklar'),
         BulletList(
@@ -1020,8 +1143,10 @@ def _conclusion_blocks(results: dict[str, dict[str, Any]]) -> list[ReportBlock]:
                 'Test setine dokunmadan eğitim katında gürültü, zaman kaydırma ve kontrollü SpecAugment veri artırımı denenmesi.',
                 'MELD’de çok uzun veya hatalı kesilmiş kayıtların eğitimden önce otomatik süre/sessizlik kalite kontrolünden geçirilmesi.',
                 'Seed duyarlılığını azaltmak için daha fazla tekrar ve doğrulama temelli olasılık ortalamalı MLP ensemble araştırılması.',
+                'CREMA-D’de 96×64 crop-pad adayının küçük validation kazancının çoklu seed koşularıyla doğrulanması.',
                 'MELD için sonraki proje aşamalarında konuşma bağlamı ve metin bilgisinin, ödev kısıtlarına uygun ayrı bir deney olarak değerlendirilmesi.',
-                'Model kalibrasyonu, hata örneklerinin konuşmacı ve süre bazında incelenmesi ve sınıf bazlı veri artırımı.',
+                'Aşırı güveni azaltmak için yalnız validation logitlerinde öğrenilen temperature scaling ve güvenilirlik diyagramı denenmesi.',
+                'Hata örneklerinin konuşmacı ve süre bazında incelenmesi ve sınıf bazlı veri artırımı.',
             )
         ),
         Heading(3, 'Ödev Koşulları Denetimi'),
@@ -1036,6 +1161,7 @@ def _conclusion_blocks(results: dict[str, dict[str, Any]]) -> list[ReportBlock]:
                 ('Tüm temel MLP hiperparametreleri denendi', True, 'validation_results.csv tabloları'),
                 ('En iyi modeller kaydedildi', True, 'cremad/meld best_model.pt'),
                 ('Held-out test ve karmaşıklık matrisi verildi', True, 'test_predictions.csv ve PNG'),
+                ('Test belirsizliği ve kalibrasyonu raporlandı', True, 'test_uncertainty.json ve test_calibration.json'),
                 ('Önceki aşama modelleriyle karşılaştırıldı', True, 'model_comparison.csv'),
             ),
         ),
@@ -1077,7 +1203,7 @@ def _build_report_blocks(
     blocks.extend(_method_blocks(results, ablation_root))
     blocks.extend(_validation_blocks(output_root, results, validations))
     blocks.extend(_test_blocks(output_root, results))
-    blocks.extend(_conclusion_blocks(results))
+    blocks.extend(_conclusion_blocks(results, ablation_root))
     return blocks, diagnostic
 
 
