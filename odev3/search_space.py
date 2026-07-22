@@ -84,6 +84,57 @@ def _full_candidates() -> list[MLPConfig]:
     return _unique(configs)
 
 
+def _scaled_hidden_dims(hidden_dims: tuple[int, ...], factor: float) -> tuple[int, ...]:
+    '''Scale widths while retaining practical multiples of 32.'''
+
+    return tuple(
+        max(32, int(round((size * factor) / 32.0)) * 32)
+        for size in hidden_dims
+    )
+
+
+def refinement_space(
+    winner: MLPConfig,
+    *,
+    exclude: list[MLPConfig] | tuple[MLPConfig, ...] = (),
+) -> list[MLPConfig]:
+    '''Build a local second-stage search around the validation winner.'''
+
+    winner.validate()
+    alternative_activations = [
+        name for name in ('relu', 'gelu', 'tanh') if name != winner.activation
+    ]
+    candidates = _unique(
+        [
+            replace(winner, learning_rate=max(1e-5, winner.learning_rate / 2.0)),
+            replace(winner, learning_rate=min(5e-3, winner.learning_rate * 2.0)),
+            replace(winner, batch_size=max(16, winner.batch_size // 2)),
+            replace(winner, batch_size=min(256, winner.batch_size * 2)),
+            replace(winner, patience=max(3, winner.patience - 2)),
+            replace(winner, patience=min(20, winner.patience + 2)),
+            replace(winner, dropout=round(max(0.0, winner.dropout - 0.1), 2)),
+            replace(winner, dropout=round(min(0.7, winner.dropout + 0.1), 2)),
+            replace(
+                winner,
+                hidden_dims=_scaled_hidden_dims(winner.hidden_dims, 0.5),
+            ),
+            replace(
+                winner,
+                hidden_dims=_scaled_hidden_dims(winner.hidden_dims, 1.5),
+            ),
+            replace(winner, batch_norm=not winner.batch_norm),
+            replace(winner, activation=alternative_activations[0]),
+            replace(winner, activation=alternative_activations[1]),
+            replace(
+                winner,
+                weight_decay=0.0 if winner.weight_decay > 0.0 else 1e-4,
+            ),
+        ]
+    )
+    excluded = set(exclude)
+    return [config for config in candidates if config != winner and config not in excluded]
+
+
 def search_space(mode: str) -> list[MLPConfig]:
     '''Return candidates without touching validation or test data.'''
 

@@ -2,7 +2,8 @@
 
 import pytest
 
-from odev3.search_space import search_space
+from odev3.model import MLPConfig
+from odev3.search_space import refinement_space, search_space
 
 
 def test_report_search_varies_every_required_hyperparameter() -> None:
@@ -37,3 +38,29 @@ def test_search_mode_sizes_make_runtime_explicit() -> None:
     assert len(search_space('quick')) == 2
     assert len(search_space('report')) == 16
     assert len(search_space('full')) == 128
+
+
+def test_refinement_builds_new_valid_neighbors_around_validation_winner() -> None:
+    winner = MLPConfig(
+        batch_size=32,
+        learning_rate=1e-3,
+        patience=5,
+        hidden_dims=(512, 256, 128),
+        activation='gelu',
+        batch_norm=True,
+        dropout=0.3,
+        weight_decay=1e-4,
+    )
+    screening = search_space('report')
+
+    refinements = refinement_space(winner, exclude=screening)
+
+    assert 8 <= len(refinements) <= 14
+    assert len(refinements) == len(set(refinements))
+    assert not set(refinements) & set(screening)
+    assert any(config.learning_rate < winner.learning_rate for config in refinements)
+    assert any(config.learning_rate > winner.learning_rate for config in refinements)
+    assert any(config.hidden_dims != winner.hidden_dims for config in refinements)
+    assert any(config.dropout != winner.dropout for config in refinements)
+    for config in refinements:
+        config.validate()

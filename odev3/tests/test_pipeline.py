@@ -113,6 +113,11 @@ def test_test_fold_is_untouched_until_validation_search_finishes(
         MLPConfig(hidden_dims=(4,), batch_norm=False, dropout=0.0),
         MLPConfig(hidden_dims=(8,), batch_norm=False, dropout=0.0),
     ]
+    refinement_candidate = MLPConfig(
+        hidden_dims=(10,),
+        batch_norm=False,
+        dropout=0.0,
+    )
 
     monkeypatch.setattr(
         pipeline_module,
@@ -124,6 +129,12 @@ def test_test_fold_is_untouched_until_validation_search_finishes(
         ),
     )
     monkeypatch.setattr(pipeline_module, 'search_space', lambda mode: candidates)
+    monkeypatch.setattr(
+        pipeline_module,
+        'refinement_space',
+        lambda winner, exclude: [refinement_candidate],
+        raising=False,
+    )
 
     def fake_load(records, cache_dir, config, **kwargs):
         description = kwargs['description']
@@ -142,7 +153,11 @@ def test_test_fold_is_untouched_until_validation_search_finishes(
     ):
         events.append('train')
         assert not any(event.endswith('test') for event in events)
-        score = 0.4 if config.hidden_dims == (4,) else 0.6
+        score = {
+            (4,): 0.4,
+            (8,): 0.6,
+            (10,): 0.7,
+        }[config.hidden_dims]
         history = [
             {
                 'epoch': 1,
@@ -184,7 +199,7 @@ def test_test_fold_is_untouched_until_validation_search_finishes(
         manifest_path=tmp_path / 'manifest.csv',
         cache_root=tmp_path / 'cache',
         output_root=tmp_path / 'outputs',
-        grid_mode='quick',
+        grid_mode='report',
         max_epochs=2,
         device=torch.device('cpu'),
         feature_config=feature_config,
@@ -195,10 +210,19 @@ def test_test_fold_is_untouched_until_validation_search_finishes(
         'load:cremad geçerleme',
         'train',
         'train',
+        'train',
         'load:cremad test',
         'evaluate:test',
     ]
-    assert result['best_trial'] == 2
+    assert result['best_trial'] == 3
+    validation = pd.read_csv(
+        tmp_path / 'outputs' / 'cremad' / 'validation_results.csv'
+    )
+    assert validation['search_stage'].tolist() == [
+        'refinement',
+        'screening',
+        'screening',
+    ]
     assert result['test']['macro_f1'] == 0.8
     checkpoint_path = tmp_path / 'outputs' / 'cremad' / 'best_model.pt'
     assert checkpoint_path.is_file()

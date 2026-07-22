@@ -15,7 +15,7 @@ import torch
 from odev3.dataset import FeatureStandardizer, load_feature_matrix
 from odev3.features_melspec import DEFAULT_CONFIG, MelSpecConfig
 from odev3.model import MLP, MLPConfig, count_parameters
-from odev3.search_space import search_space
+from odev3.search_space import refinement_space, search_space
 from odev3.training import (
     evaluate_arrays,
     inverse_frequency_weights,
@@ -202,6 +202,7 @@ def _plot_history(history: list[dict[str, Any]], path: str | Path, title: str) -
 
 def _validation_row(
     trial_id: int,
+    search_stage: str,
     config: MLPConfig,
     outcome,
     elapsed_seconds: float,
@@ -209,6 +210,7 @@ def _validation_row(
     metrics = outcome.validation_metrics
     return {
         'trial': trial_id,
+        'search_stage': search_stage,
         'batch_size': config.batch_size,
         'learning_rate': config.learning_rate,
         'patience': config.patience,
@@ -296,61 +298,94 @@ def run_corpus(
     validation_features = standardizer.transform(validation_features)
     class_weights = inverse_frequency_weights(train_labels, NUM_CLASSES)
 
-    candidates = search_space(grid_mode)
+    screening_candidates = search_space(grid_mode)
     rows: list[dict[str, Any]] = []
     best_bundle: dict[str, Any] | None = None
-    for trial_id, candidate in enumerate(candidates, start=1):
-        log.info(
-            '[%s] trial %d/%d | %s',
-            corpus,
-            trial_id,
-            len(candidates),
-            candidate.to_dict(),
-        )
-        started = time.perf_counter()
-        outcome = train_with_early_stopping(
-            train_features,
-            train_labels,
-            validation_features,
-            validation_labels,
-            candidate,
-            input_dim=feature_config.vector_size,
-            num_classes=NUM_CLASSES,
-            device=device,
-            max_epochs=max_epochs,
-            seed=SEED,
-            num_workers=loader_workers,
-            amp=amp,
-        )
-        elapsed = time.perf_counter() - started
-        row = _validation_row(trial_id, candidate, outcome, elapsed)
-        rows.append(row)
-        pd.DataFrame(outcome.history).to_csv(
-            history_dir / f'trial_{trial_id:03d}.csv', index=False
-        )
-        pd.DataFrame(rows).to_csv(corpus_dir / 'validation_results.partial.csv', index=False)
-        log.info(
-            '[%s] trial %d | best epoch=%d, val macro-F1=%.4f',
-            corpus,
-            trial_id,
-            outcome.best_epoch,
-            row['val_macro_f1'],
-        )
+    stage_counts: dict[str, int] = {}
 
-        if best_bundle is None or _selection_key(row) > _selection_key(best_bundle['row']):
-            best_bundle = {
-                'row': row.copy(),
-                'config': candidate,
-                'history': list(outcome.history),
-                'validation_metrics': outcome.validation_metrics,
-                'state_dict': {
-                    name: value.detach().cpu().clone()
-                    for name, value in outcome.model.state_dict().items()
-                },
-            }
-        del outcome
-        if device.type == 'cuda':
-            torch.cuda.empty_cache()
+    def run_stage(stage: str, candidates: list[MLPConfig]) -> None:
+        nonlocal best_bundle
+        stage_counts[stage] = len(candidates)
+        for stage_index, candidate in enumerate(candidates, start=1):
+            trial_id = len(rows) + 1
+            log.info(
+                '[%s] %s trial %d/%d | global trial %d | %s',
+                corpus,
+                stage,
+                stage_index,
+                len(candidates),
+                trial_id,
+                candidate.to_dict(),
+            )
+            started = time.perf_counter()
+            outcome = train_with_early_stopping(
+                train_features,
+                train_labels,
+                validation_features,
+                validation_labels,
+                candidate,
+                input_dim=feature_config.vector_size,
+                num_classes=NUM_CLASSES,
+                device=device,
+                max_epochs=max_epochs,
+                seed=SEED,
+                num_workers=loader_workers,
+                amp=amp,
+            )
+            elapsed = time.perf_counter() - started
+            row = _validation_row(
+                trial_id,
+                stage,
+                candidate,
+                outcome,
+                elapsed,
+            )
+            rows.append(row)
+            pd.DataFrame(outcome.history).to_csv(
+                history_dir / f'trial_{trial_id:03d}.csv', index=False
+            )
+            pd.DataFrame(rows).to_csv(
+                corpus_dir / 'validation_results.partial.csv', index=False
+            )
+            log.info(
+                '[%s] trial %d | best epoch=%d, val macro-F1=%.4f',
+                corpus,
+                trial_id,
+                outcome.best_epoch,
+                row['val_macro_f1'],
+            )
+
+            if best_bundle is None or _selection_key(row) > _selection_key(
+                best_bundle['row']
+            ):
+                best_bundle = {
+                    'row': row.copy(),
+                    'config': candidate,
+                    'history': list(outcome.history),
+                    'validation_metrics': outcome.validation_metrics,
+                    'state_dict': {
+                        name: value.detach().cpu().clone()
+                        for name, value in outcome.model.state_dict().items()
+                    },
+                }
+            del outcome
+            if device.type == 'cuda':
+                torch.cuda.empty_cache()
+
+    initial_stage = 'screening' if grid_mode == 'report' else grid_mode
+    run_stage(initial_stage, screening_candidates)
+
+    refinement_candidates: list[MLPConfig] = []
+    if grid_mode == 'report':
+        if best_bundle is None:
+            raise RuntimeError(f'Screening produced no valid trial for {corpus}.')
+        refinement_candidates = refinement_space(
+            best_bundle['config'],
+            exclude=screening_candidates,
+        )
+        run_stage('refinement', refinement_candidates)
+
+    candidates = screening_candidates + refinement_candidates
 
     if best_bundle is None:
         raise RuntimeError(f'No successful validation trial for {corpus}.')
@@ -442,6 +477,7 @@ def run_corpus(
         'seed': SEED,
         'selection_metric': 'validation macro-F1',
         'num_trials': len(candidates),
+        'search_stages': stage_counts,
         'feature': {
             **asdict(feature_config),
             'vector_size': feature_config.vector_size,
