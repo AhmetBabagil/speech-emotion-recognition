@@ -1,0 +1,37 @@
+YAP 470 / BİL 570 - PROJE İLERLEME RAPORU 3
+DRIVE YÜKLEME LİSTESİ
+
+Bu klasördeki dosyaların tamamını aynı Google Drive klasörüne yükleyin.
+
+1. Project_Assignment_3.docx
+   Nihai Proje İlerleme Raporu 3. Gerçek deney tablolarını, görselleri,
+   hiperparametre sonuçlarını ve değerlendirmeyi içerir.
+
+2. odev3_project.zip
+   Ödev 3 kaynak kodu, testleri, kök VS Code ayarı, düz metin README,
+   çalıştırılmış notebook, ortak ser paketi, modeller, manifest, smoke verisi
+   ve ara/nihai CSV, JSON ve PNG sonuçlarını içerir.
+
+3. odev3_local_history.zip
+   Ödev 3 dosyaları ile kök .vscode/settings.json için mevcut gerçek VS Code
+   Local History kaynaklarını içerir. Arşiv oluşturulurken History metadata ve
+   snapshot dosyaları değiştirilmemiştir. Manifest arşivin içindedir.
+
+4. validation_test_results.ipynb
+   Altı hücresi çalıştırılmış ve çıktıları kaydedilmiş Jupyter notebook.
+   Seçilen validation hiperparametrelerini gösterir; sekiz held-out test
+   metriğini test_predictions.csv dosyalarından yeniden hesaplar.
+
+5. README.txt
+   Dosyaların görevleri, çalıştırma sırası ve tekrarlanabilirlik açıklamaları.
+
+DOĞRULAMA
+
+Tüm Ödev 3 testleri: 131 geçti.
+Notebook: 6/6 hücre çalıştırıldı ve 6/6 hücrenin çıktısı kayıtlı.
+Rapor: 21 tablo, 8 görsel, eksik artefakt yok.
+Proje ZIP: zorunlu dosyalar mevcut; cache, pyc ve Markdown dosyası yok.
+History ZIP: kaynak hash değerleri dışa aktarım öncesi ve sonrası korundu.
+
+Orijinal CREMA-D ve MELD ses verileri ilk aşamadan beri değişmediği için
+yönerge uyarınca tekrar paketlenmemiştir.
