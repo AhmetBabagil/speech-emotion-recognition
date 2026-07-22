@@ -24,6 +24,7 @@ from odev3.training import (
     inverse_frequency_weights,
     train_with_early_stopping,
 )
+from odev3.uncertainty import bootstrap_metric_intervals
 from ser.config import Config
 from ser.constants import CANONICAL_EMOTIONS, NUM_CLASSES
 from ser.data import prepare_splits
@@ -654,6 +655,13 @@ def run_corpus(
     )
     predictions = probabilities.argmax(axis=1)
     confidences = probabilities.max(axis=1)
+    test_uncertainty = bootstrap_metric_intervals(
+        test_labels,
+        predictions,
+        iterations=2000,
+        confidence=0.95,
+        seed=SEED,
+    )
 
     prediction_frame = test_frame[
         ['path', 'speaker', 'emotion', 'label_idx']
@@ -666,6 +674,8 @@ def run_corpus(
     for index, emotion in enumerate(CANONICAL_EMOTIONS):
         prediction_frame[f'prob_{emotion}'] = probabilities[:, index]
     prediction_frame.to_csv(corpus_dir / 'test_predictions.csv', index=False)
+    uncertainty_path = corpus_dir / 'test_uncertainty.json'
+    _write_json(uncertainty_path, test_uncertainty)
 
     checkpoint = {
         'schema_version': 1,
@@ -773,12 +783,14 @@ def run_corpus(
         'validation': best_bundle['validation_metrics'],
         'test_loss': float(test_loss),
         'test': test_metrics,
+        'test_uncertainty': test_uncertainty,
         'artifacts': {
             'model': str(corpus_dir / 'best_model.pt'),
             'validation_results': str(corpus_dir / 'validation_results.csv'),
             'history': str(history_path),
             'confusion_matrix': str(corpus_dir / 'test_confusion_matrix.png'),
             'predictions': str(corpus_dir / 'test_predictions.csv'),
+            'uncertainty': str(uncertainty_path),
             'search_state': str(state_path),
         },
     }

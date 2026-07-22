@@ -1,5 +1,6 @@
 '''Tests for split integrity and Assignment 3 pipeline artifacts.'''
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -214,6 +215,22 @@ def test_test_fold_is_untouched_until_validation_search_finishes(
     monkeypatch.setattr(pipeline_module, 'load_feature_matrix', fake_load)
     monkeypatch.setattr(pipeline_module, 'train_with_early_stopping', fake_train)
     monkeypatch.setattr(pipeline_module, 'evaluate_arrays', fake_evaluate)
+    monkeypatch.setattr(
+        pipeline_module,
+        'bootstrap_metric_intervals',
+        lambda *args, **kwargs: {
+            'method': 'test bootstrap',
+            'iterations': 100,
+            'confidence': 0.95,
+            'metrics': {
+                'macro_f1': {
+                    'estimate': 0.8,
+                    'lower': 0.7,
+                    'upper': 0.9,
+                }
+            },
+        },
+    )
     monkeypatch.setattr(pipeline_module, '_plot_history', lambda *args, **kwargs: None)
     monkeypatch.setattr(pipeline_module, '_plot_confusion', lambda *args, **kwargs: None)
 
@@ -259,6 +276,17 @@ def test_test_fold_is_untouched_until_validation_search_finishes(
     assert result['stability']['seeds'] == [42, 143, 244]
     assert result['stability']['val_macro_f1_mean'] == pytest.approx(0.7)
     assert result['test']['macro_f1'] == 0.8
+    assert result['test_uncertainty']['method'] == 'test bootstrap'
+    assert result['test_uncertainty']['metrics']['macro_f1'] == {
+        'estimate': 0.8,
+        'lower': 0.7,
+        'upper': 0.9,
+    }
+    uncertainty_path = Path(result['artifacts']['uncertainty'])
+    assert uncertainty_path.is_file()
+    with uncertainty_path.open(encoding='utf-8') as handle:
+        saved_uncertainty = json.load(handle)
+    assert saved_uncertainty == result['test_uncertainty']
     checkpoint_path = tmp_path / 'outputs' / 'cremad' / 'best_model.pt'
     assert checkpoint_path.is_file()
 

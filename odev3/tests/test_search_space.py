@@ -17,6 +17,7 @@ def test_report_search_varies_every_required_hyperparameter() -> None:
         'activation': {config.activation for config in candidates},
         'batch_norm': {config.batch_norm for config in candidates},
         'dropout': {config.dropout for config in candidates},
+        'weight_decay': {config.weight_decay for config in candidates},
     }
 
     assert all(len(values) >= 2 for values in varied_values.values())

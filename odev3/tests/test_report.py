@@ -88,7 +88,10 @@ def test_final_report_builds_from_complete_experiment_artifacts(
     assert 'Nihai rapor: 2 veri kümesi, 64 geçerleme/seed koşusu' in html
     assert 'CREMA-D – 32 Geçerleme Koşusu' in paragraph_text
     assert 'MELD – 32 Geçerleme Koşusu' in paragraph_text
+    assert 'Sınıf-korumalı bootstrap ile held-out test güven aralıkları' in html
+    assert '0.3754' in html
+    assert '2000 tekrarlı percentile bootstrap' in paragraph_text
     assert 'class="missing"' not in html
-    assert html.count('<table>') == 17
-    assert len(document.tables) == 17
+    assert html.count('<table>') == 18
+    assert len(document.tables) == 18
     assert len(document.inline_shapes) == 4

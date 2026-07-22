@@ -326,12 +326,50 @@
       ]
     ]
   },
+  "test_uncertainty": {
+    "method": "class-stratified percentile bootstrap",
+    "iterations": 2000,
+    "confidence": 0.95,
+    "seed": 42,
+    "sample_size": 321,
+    "class_counts": {
+      "angry": 55,
+      "disgust": 55,
+      "fear": 55,
+      "happy": 55,
+      "neutral": 46,
+      "sad": 55
+    },
+    "metrics": {
+      "accuracy": {
+        "estimate": 0.4423676012461059,
+        "lower": 0.3925233644859813,
+        "upper": 0.49221183800623053
+      },
+      "balanced_accuracy": {
+        "estimate": 0.44156785243741764,
+        "lower": 0.3912895256916996,
+        "upper": 0.49057971014492746
+      },
+      "macro_f1": {
+        "estimate": 0.42988675964238515,
+        "lower": 0.3753621399395612,
+        "upper": 0.47945833955645034
+      },
+      "weighted_f1": {
+        "estimate": 0.4282804214871393,
+        "lower": 0.3748311124061769,
+        "upper": 0.4772846608689687
+      }
+    }
+  },
   "artifacts": {
     "model": "odev3\\outputs\\cremad\\best_model.pt",
     "validation_results": "odev3\\outputs\\cremad\\validation_results.csv",
     "history": "odev3\\outputs\\cremad\\best_training_history.csv",
     "confusion_matrix": "odev3\\outputs\\cremad\\test_confusion_matrix.png",
     "predictions": "odev3\\outputs\\cremad\\test_predictions.csv",
+    "uncertainty": "odev3\\outputs\\cremad\\test_uncertainty.json",
     "search_state": "odev3\\outputs\\cremad\\search_state.pt"
   }
 }

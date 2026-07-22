@@ -839,6 +839,36 @@ def _per_class_rows(results: dict[str, dict[str, Any]]) -> tuple[tuple[Any, ...]
     return tuple(rows)
 
 
+def _uncertainty_rows(
+    results: dict[str, dict[str, Any]],
+) -> tuple[tuple[Any, ...], ...]:
+    metric_labels = (
+        ('accuracy', 'Doğruluk'),
+        ('balanced_accuracy', 'Dengeli doğruluk'),
+        ('macro_f1', 'Macro-F1'),
+        ('weighted_f1', 'Weighted-F1'),
+    )
+    rows = []
+    for corpus, result in results.items():
+        uncertainty = result.get('test_uncertainty')
+        if not uncertainty:
+            continue
+        confidence = float(uncertainty['confidence'])
+        for metric, label in metric_labels:
+            interval = uncertainty['metrics'][metric]
+            rows.append(
+                (
+                    DISPLAY[corpus],
+                    label,
+                    interval['estimate'],
+                    interval['lower'],
+                    interval['upper'],
+                    confidence,
+                )
+            )
+    return tuple(rows)
+
+
 def _comparison_rows(path: Path) -> tuple[tuple[Any, ...], ...]:
     if not path.is_file():
         return ()
@@ -917,12 +947,34 @@ def _test_blocks(output_root: Path, results: dict[str, dict[str, Any]]) -> list[
             _overall_test_rows(results),
             'Nihai held-out test sonuçları',
         ),
+    ]
+    uncertainty_rows = _uncertainty_rows(results)
+    if uncertainty_rows:
+        blocks.extend(
+            [
+                TableBlock(
+                    (
+                        'Veri seti', 'Metrik', 'Tahmin', 'Alt sınır',
+                        'Üst sınır', 'Güven',
+                    ),
+                    uncertainty_rows,
+                    'Sınıf-korumalı bootstrap ile held-out test güven aralıkları',
+                ),
+                Paragraph(
+                    'Güven aralıkları test katındaki her duygu sınıfının örnek '
+                    'sayısını koruyan 2000 tekrarlı percentile bootstrap ile, '
+                    'seed 42 ve %95 güven düzeyinde hesaplanmıştır. Test katı '
+                    'model veya hiperparametre seçimi için kullanılmamıştır.'
+                ),
+            ]
+        )
+    blocks.append(
         TableBlock(
             ('Veri seti', 'Sınıf', 'Precision', 'Recall', 'F1', 'Destek'),
             _per_class_rows(results),
             'Sınıf bazında held-out test sonuçları',
-        ),
-    ]
+        )
+    )
     for corpus in results:
         blocks.append(
             ImageBlock(

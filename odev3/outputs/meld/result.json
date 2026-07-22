@@ -324,12 +324,50 @@
       ]
     ]
   },
+  "test_uncertainty": {
+    "method": "class-stratified percentile bootstrap",
+    "iterations": 2000,
+    "confidence": 0.95,
+    "seed": 42,
+    "sample_size": 430,
+    "class_counts": {
+      "angry": 71,
+      "disgust": 62,
+      "fear": 78,
+      "happy": 76,
+      "neutral": 89,
+      "sad": 54
+    },
+    "metrics": {
+      "accuracy": {
+        "estimate": 0.19069767441860466,
+        "lower": 0.15348837209302327,
+        "upper": 0.2302325581395349
+      },
+      "balanced_accuracy": {
+        "estimate": 0.18910436621470475,
+        "lower": 0.15086472029695777,
+        "upper": 0.22873901306939948
+      },
+      "macro_f1": {
+        "estimate": 0.1873911425877943,
+        "lower": 0.14957510943721666,
+        "upper": 0.22563577365717882
+      },
+      "weighted_f1": {
+        "estimate": 0.1891528837755232,
+        "lower": 0.151244973268787,
+        "upper": 0.2270843135989783
+      }
+    }
+  },
   "artifacts": {
     "model": "odev3\\outputs\\meld\\best_model.pt",
     "validation_results": "odev3\\outputs\\meld\\validation_results.csv",
     "history": "odev3\\outputs\\meld\\best_training_history.csv",
     "confusion_matrix": "odev3\\outputs\\meld\\test_confusion_matrix.png",
     "predictions": "odev3\\outputs\\meld\\test_predictions.csv",
+    "uncertainty": "odev3\\outputs\\meld\\test_uncertainty.json",
     "search_state": "odev3\\outputs\\meld\\search_state.pt"
   }
 }
