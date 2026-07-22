@@ -7,4 +7,5 @@ cremad,Karar Agaci,1536,none,"{""criterion"": ""entropy"", ""max_depth"": 8, ""m
 meld,Gradient Boosting,1536,64,"{""learning_rate"": 0.1, ""max_depth"": 3}",0.2093,0.2072,0.2027,0.2068
 meld,Rastgele Orman,2304,64,"{""max_depth"": 16, ""max_features"": ""sqrt"", ""n_estimators"": 100}",0.2116,0.2146,0.2006,0.2004
 meld,KNN (Odev 1),768,128,"{""K"": 5}",0.2047,0.2063,0.1941,0.1938
+meld,MLP (Ödev 3),4096,none,"{""activation"": ""relu"", ""batch_norm"": true, ""batch_size"": 64, ""dropout"": 0.5, ""hidden_dims"": [512, 256], ""learning_rate"": 0.0003, ""patience"": 8, ""weight_decay"": 0.0001}",0.19069767441860466,0.18910436621470475,0.1873911425877943,0.1891528837755232
 meld,Karar Agaci,768,128,"{""criterion"": ""gini"", ""max_depth"": 8, ""min_samples_split"": 10}",0.1465,0.1475,0.143,0.1463
