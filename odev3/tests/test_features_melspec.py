@@ -28,8 +28,10 @@ def test_default_vector_meets_assignment_minimum() -> None:
 
 def test_config_fingerprint_changes_with_feature_parameters() -> None:
     changed = MelSpecConfig(hop_length=256)
+    resized = MelSpecConfig(frame_strategy='resize')
 
     assert DEFAULT_CONFIG.fingerprint != changed.fingerprint
+    assert DEFAULT_CONFIG.fingerprint != resized.fingerprint
     assert DEFAULT_CONFIG.fingerprint == MelSpecConfig().fingerprint
 
 
@@ -40,6 +42,7 @@ def test_config_fingerprint_changes_with_feature_parameters() -> None:
         MelSpecConfig(n_frames=-1),
         MelSpecConfig(fmin=100.0, fmax=50.0),
         MelSpecConfig(top_db=0.0),
+        MelSpecConfig(frame_strategy='unknown'),
     ],
 )
 def test_invalid_configs_are_rejected(config: MelSpecConfig) -> None:
@@ -63,6 +66,29 @@ def test_fix_frames_centre_crops_long_input() -> None:
     fixed = fix_frames(mel, n_frames=5)
 
     np.testing.assert_array_equal(fixed, mel[:, 2:7])
+
+
+def test_fix_frames_resize_uses_the_complete_time_axis() -> None:
+    mel = np.array(
+        [[0.0, 10.0, 20.0, 30.0, 40.0], [5.0, 15.0, 25.0, 35.0, 45.0]],
+        dtype=np.float32,
+    )
+
+    fixed = fix_frames(mel, n_frames=3, strategy='resize')
+
+    expected = np.array([[0.0, 20.0, 40.0], [5.0, 25.0, 45.0]], dtype=np.float32)
+    np.testing.assert_allclose(fixed, expected)
+
+
+def test_fix_frames_resize_repeats_a_single_frame() -> None:
+    mel = np.array([[2.0], [-4.0]], dtype=np.float32)
+
+    fixed = fix_frames(mel, n_frames=4, strategy='resize')
+
+    np.testing.assert_array_equal(
+        fixed,
+        np.array([[2.0, 2.0, 2.0, 2.0], [-4.0, -4.0, -4.0, -4.0]]),
+    )
 
 
 def test_extract_melspec_returns_finite_float32_vector(tmp_path: Path) -> None:

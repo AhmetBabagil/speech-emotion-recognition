@@ -1,4 +1,4 @@
-'''Fixed 4096-dimensional log-mel features for the PyTorch MLP.'''
+'''Fixed-size log-mel features for the PyTorch MLP.'''
 
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ class MelSpecConfig:
     fmin: float = 20.0
     fmax: float = 8_000.0
     top_db: float = 80.0
+    frame_strategy: str = 'crop_pad'
 
     def validate(self) -> None:
         '''Reject settings that cannot produce a meaningful mel vector.'''
@@ -44,6 +45,11 @@ class MelSpecConfig:
             )
         if self.top_db <= 0.0:
             raise ValueError(f'top_db must be positive, got {self.top_db}.')
+        if self.frame_strategy not in {'crop_pad', 'resize'}:
+            raise ValueError(
+                'frame_strategy must be crop_pad or resize, got '
+                f'{self.frame_strategy!r}.'
+            )
 
     @property
     def vector_size(self) -> int:
@@ -69,18 +75,36 @@ HOP_LENGTH = DEFAULT_CONFIG.hop_length
 VECTOR_SIZE = DEFAULT_CONFIG.vector_size
 
 
-def fix_frames(mel_db: np.ndarray, n_frames: int = N_FRAMES) -> np.ndarray:
-    '''Centre-crop or right-pad a log-mel matrix to n_frames columns.'''
+def fix_frames(
+    mel_db: np.ndarray,
+    n_frames: int = N_FRAMES,
+    *,
+    strategy: str = 'crop_pad',
+) -> np.ndarray:
+    '''Convert a log-mel matrix to exactly n_frames time columns.'''
 
     mel_db = np.asarray(mel_db, dtype=np.float32)
     if mel_db.ndim != 2 or mel_db.shape[0] == 0:
         raise ValueError(f'Expected a non-empty 2-D mel matrix, got {mel_db.shape}.')
     if n_frames <= 0:
         raise ValueError(f'n_frames must be positive, got {n_frames}.')
+    if strategy not in {'crop_pad', 'resize'}:
+        raise ValueError(f'Unknown frame strategy: {strategy!r}.')
 
     current_frames = mel_db.shape[1]
     if current_frames == 0:
         return np.full((mel_db.shape[0], n_frames), -80.0, dtype=np.float32)
+    if strategy == 'resize' and current_frames != n_frames:
+        if current_frames == 1:
+            return np.repeat(mel_db, n_frames, axis=1).astype(
+                np.float32, copy=False
+            )
+        source_positions = np.linspace(0.0, 1.0, current_frames)
+        target_positions = np.linspace(0.0, 1.0, n_frames)
+        resized = np.empty((mel_db.shape[0], n_frames), dtype=np.float32)
+        for mel_index, row in enumerate(mel_db):
+            resized[mel_index] = np.interp(target_positions, source_positions, row)
+        return resized
     if current_frames < n_frames:
         floor = float(np.min(mel_db))
         return np.pad(
@@ -126,7 +150,11 @@ def extract_melspec(
     # A positive reference handles silent recordings without divide-by-zero.
     reference = max(float(np.max(mel_power)), float(np.finfo(np.float32).tiny))
     mel_db = librosa.power_to_db(mel_power, ref=reference, top_db=config.top_db)
-    mel_fixed = fix_frames(mel_db, config.n_frames)
+    mel_fixed = fix_frames(
+        mel_db,
+        config.n_frames,
+        strategy=config.frame_strategy,
+    )
     vector = mel_fixed.reshape(config.vector_size).astype(np.float32, copy=False)
 
     if vector.shape != (config.vector_size,) or not np.isfinite(vector).all():
