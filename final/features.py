@@ -179,11 +179,14 @@ class IntervalConfig:
     n_fft: int = 512          # aralık içi kısa FFT penceresi (32 ms)
     hop_length: int = 160     # aralık içi atlama (10 ms)
     # --- Ablasyon bayrakları: her mantıklı öznitelik grubu ayrı açılıp kapanır.
-    use_pitch: bool = True     # +3: ortalama log-perde, perde std, tonlu oran (F0)
-    use_jitter: bool = True    # +2: jitter (perde titremesi) + shimmer (genlik titremesi)
-    use_contrast: bool = True  # +7: spektral kontrast (tepe-vadi enerji farkı, 7 bant)
-    use_delta2: bool = True    # +13: delta-delta MFCC (ivme = değişimin değişimi)
-    use_bandwidth: bool = True # +2: spektral bant genişliği + spektral düzlük (flatness)
+    # Ablasyon (5 koşu) sonucu: pitch ve kontrast gerçek katkı yaptı; delta2 ve
+    # bant genişliği doğruluğu DÜŞÜRDÜ, jitter nötr kaldı. Bu yüzden delta2 ve
+    # bandwidth varsayılan olarak KAPALI — kanıta dayalı öznitelik seçimi.
+    use_pitch: bool = True      # +3: ortalama log-perde, perde std, tonlu oran (F0) — +1,3 katkı
+    use_jitter: bool = True     # +2: jitter + shimmer titremesi — nötr, sadelik için tutuldu
+    use_contrast: bool = True   # +7: spektral kontrast (tepe-vadi enerji farkı) — zirveyi getirdi
+    use_delta2: bool = False    # +13: delta-delta MFCC — ablasyonda doğruluğu düşürdü, KAPALI
+    use_bandwidth: bool = False # +2: bant genişliği + düzlük — ablasyonda düşürdü, KAPALI
     feature_version: int = 3   # öznitelik seti sürümü (fingerprint'i ayırır)
 
     def validate(self) -> None:
