@@ -178,6 +178,7 @@ class IntervalConfig:
     n_mfcc: int = 13          # aralık başına MFCC katsayısı sayısı
     n_fft: int = 512          # aralık içi kısa FFT penceresi (32 ms)
     hop_length: int = 160     # aralık içi atlama (10 ms)
+    use_pitch: bool = True    # aralık başına 3 pitch özniteliği (F0) eklensin mi
 
     def validate(self) -> None:
         if min(self.sample_rate, self.n_intervals, self.interval_ms,
@@ -195,10 +196,10 @@ class IntervalConfig:
         '''Aralık başına öznitelik sayısı.
 
         13 MFCC ortalaması + 13 MFCC std'si + 13 delta-MFCC ortalaması
-        + 5 skaler istatistik (enerji, enerji std, ZCR, centroid, rolloff) = 44.
+        + 5 skaler istatistik (enerji, enerji std, ZCR, centroid, rolloff) = 47 (+ 3 pitch).
         '''
 
-        return 3 * self.n_mfcc + 5
+        return 3 * self.n_mfcc + (8 if self.use_pitch else 5)   # +3 pitch açıksa
 
     @property
     def shape(self) -> tuple[int, int]:
@@ -260,17 +261,38 @@ def _interval_features(segment: np.ndarray, config: IntervalConfig) -> np.ndarra
     centroid = librosa.feature.spectral_centroid(S=stft, sr=config.sample_rate)[0]
     rolloff = librosa.feature.spectral_rolloff(S=stft, sr=config.sample_rate)[0]
 
+    skalerler = [
+        float(np.log1p(rms.mean())),                            # log enerji
+        float(rms.std()),                                       # enerji dalgalanması
+        float(zcr.mean()),                                      # gürültülülük göstergesi
+        float(centroid.mean() / (config.sample_rate / 2)),      # spektral ağırlık merkezi (0-1)
+        float(rolloff.mean() / (config.sample_rate / 2)),       # enerji %85 sınırı (0-1)
+    ]
+    if config.use_pitch:
+        # Pitch (temel frekans F0): tonlamanın taşıyıcısı; duygunun en güçlü ipucu.
+        # pyin her çerçeve için F0 + "tonlu mu" bilgisi verir. Aralık içi kısa
+        # sinyalde daha seyrek çerçeve (2x hop) yeterli ve pyin'i belirgin hızlandırır.
+        f0, voiced_flag, _ = librosa.pyin(
+            segment, sr=config.sample_rate,
+            fmin=65, fmax=400,                  # insan konuşma perdesi bandı (Hz)
+            frame_length=config.n_fft,
+            hop_length=config.hop_length * 2,   # daha az çerçeve -> daha hızlı
+        )
+        f0_tonlu = f0[voiced_flag]              # yalnızca tonlu çerçevelerin perdesi
+        if len(f0_tonlu) > 0:
+            pitch_ort = float(np.log1p(np.mean(f0_tonlu)))   # log-perde ortalaması
+            pitch_std = float(np.std(f0_tonlu))              # perde dalgalanması
+        else:
+            pitch_ort = 0.0                     # hiç tonlu çerçeve yoksa (fısıltı/sessizlik)
+            pitch_std = 0.0
+        tonlu_oran = float(np.mean(voiced_flag))             # aralığın ne kadarı tonlu
+        skalerler += [pitch_ort, pitch_std, tonlu_oran]
+
     parts = [
         mfcc.mean(axis=1),      # 13 değer: ortalama tını
         mfcc.std(axis=1),       # 13 değer: tınının aralık içi değişkenliği
         delta.mean(axis=1),     # 13 değer: ortalama değişim hızı
-        [
-            float(np.log1p(rms.mean())),                            # log enerji
-            float(rms.std()),                                       # enerji dalgalanması
-            float(zcr.mean()),                                      # gürültülülük göstergesi
-            float(centroid.mean() / (config.sample_rate / 2)),      # spektral ağırlık merkezi (0-1)
-            float(rolloff.mean() / (config.sample_rate / 2)),       # enerji %85 sınırı (0-1)
-        ],
+        skalerler,
     ]
     vector = np.concatenate([np.asarray(p, dtype=np.float32).ravel() for p in parts])
     if vector.shape != (config.feature_dim,):

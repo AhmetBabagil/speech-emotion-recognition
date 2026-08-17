@@ -67,6 +67,8 @@ def main() -> None:
                         help='Paralel süreç sayısı (fiziksel çekirdek civarı iyi).')
     parser.add_argument('--manifest', default='data/processed/manifest.csv')
     parser.add_argument('--cache-root', default='data/cache/final')
+    parser.add_argument('--sadece', nargs=2, type=int, metavar=('N', 'MS'),
+                        help='Yalnız tek aralık düzeni çıkar, ör: --sadece 32 200')
     args = parser.parse_args()
 
     import pandas as pd
@@ -77,9 +79,15 @@ def main() -> None:
     manifest = pd.read_csv(args.manifest)
     yollar = manifest[manifest['corpus'] == 'cremad']['path'].astype(str).tolist()
 
+    # Hangi düzenler çıkarılacak: tümü mü, yoksa yalnız --sadece verilen mi.
+    if args.sadece:
+        duzenler = [(args.sadece[0], args.sadece[1])]
+    else:
+        duzenler = list(product(ARALIK_SAYILARI, ARALIK_GENISLIKLERI))
+
     # Eksik (henüz önbelleğe yazılmamış) işleri listele.
     gorevler = []
-    for n, ms in product(ARALIK_SAYILARI, ARALIK_GENISLIKLERI):
+    for n, ms in duzenler:
         cfg = IntervalConfig(n_intervals=n, interval_ms=ms)
         sozluk = {'n_intervals': n, 'interval_ms': ms}
         eksik = [y for y in yollar
