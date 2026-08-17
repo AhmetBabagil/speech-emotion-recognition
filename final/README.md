@@ -24,9 +24,16 @@ python final/improve.py
 # Hızlı sağlamlık kontrolü (küçük veri, dakikalar içinde):
 python final/run_experiment.py --grid-mode quick --limit-per-split 60
 
-# Tek dosya tahmini (demo):
+# Demo (yönerge 8. bölüm): rastgele veya adıyla verilen örnekleri iki yöntemden geçir
+python final/demo.py --rastgele 3
+python final/demo.py final/demo_ornekleri/1013_TIE_DIS_XX.wav
+
+# Tek dosya tahmini:
 python final/predict.py ses.wav --model final/outputs/cremad/cnn/winner_model.pt
 ```
+
+Geçerleme/test/demo kodlarının çalıştırılmış hali: `SONUCLAR_VE_DEMO.ipynb`
+(yönerge 7. bölüm; test sonuçlarının birebir yeniden üretildiğini de gösterir).
 
 ## Dosyalar
 
@@ -40,7 +47,10 @@ python final/predict.py ses.wav --model final/outputs/cremad/cnn/winner_model.pt
 | `pipeline.py` | Bölme → öznitelik → arama → iyileştirme → test akışı |
 | `augment.py` | SpecAugment maskeleme ve öznitelik gürültüsü (yalnız eğitim yığınlarına) |
 | `improve.py` | Geliştirme aşaması koşucusu |
-| `predict.py` | Kaydedilen modelle WAV tahmini (demo) |
+| `demo.py` | Demo: iyi/kötü örnek dizininden rastgele veya adıyla girdi → iki yöntemin sonuçları |
+| `demo_ornekleri/` | Test kümesinden seçilmiş 6 iyi + 4 kötü örnek (demo girdileri) |
+| `SONUCLAR_VE_DEMO.ipynb` | Geçerleme + test (yeniden üretim kanıtıyla) + demo, çalıştırılmış çıktılarıyla |
+| `predict.py` | Kaydedilen modelle WAV tahmini |
 | `kaynaklar.md` | Literatür taraması ve kaynakça notları |
 | `tests/` | Öznitelik/model birim testleri (`python -m pytest final/tests -q`) |
 
