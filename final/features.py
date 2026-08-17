@@ -179,6 +179,7 @@ class IntervalConfig:
     n_fft: int = 512          # aralık içi kısa FFT penceresi (32 ms)
     hop_length: int = 160     # aralık içi atlama (10 ms)
     use_pitch: bool = True    # aralık başına 3 pitch özniteliği (F0) eklensin mi
+    feature_version: int = 2  # öznitelik seti sürümü (2 = pitch + jitter/shimmer)
 
     def validate(self) -> None:
         if min(self.sample_rate, self.n_intervals, self.interval_ms,
@@ -199,7 +200,7 @@ class IntervalConfig:
         + 5 skaler istatistik (enerji, enerji std, ZCR, centroid, rolloff) = 47 (+ 3 pitch).
         '''
 
-        return 3 * self.n_mfcc + (8 if self.use_pitch else 5)   # +3 pitch açıksa
+        return 3 * self.n_mfcc + (10 if self.use_pitch else 5)   # +3 pitch +2 jitter/shimmer
 
     @property
     def shape(self) -> tuple[int, int]:
@@ -286,7 +287,18 @@ def _interval_features(segment: np.ndarray, config: IntervalConfig) -> np.ndarra
             pitch_ort = 0.0                     # hiç tonlu çerçeve yoksa (fısıltı/sessizlik)
             pitch_std = 0.0
         tonlu_oran = float(np.mean(voiced_flag))             # aralığın ne kadarı tonlu
-        skalerler += [pitch_ort, pitch_std, tonlu_oran]
+        # Jitter: ardışık perde değerleri arasındaki ortalama görece değişim.
+        # Yüksek jitter = "titrek/gergin ses" -> duygusal uyarılma göstergesi.
+        if len(f0_tonlu) >= 2:
+            jitter = float(np.mean(np.abs(np.diff(f0_tonlu))) / (np.mean(f0_tonlu) + 1e-6))
+        else:
+            jitter = 0.0
+        # Shimmer: ardışık genlik (enerji) değerleri arasındaki ortalama görece değişim.
+        if len(rms) >= 2:
+            shimmer = float(np.mean(np.abs(np.diff(rms))) / (np.mean(rms) + 1e-6))
+        else:
+            shimmer = 0.0
+        skalerler += [pitch_ort, pitch_std, tonlu_oran, jitter, shimmer]
 
     parts = [
         mfcc.mean(axis=1),      # 13 değer: ortalama tını
