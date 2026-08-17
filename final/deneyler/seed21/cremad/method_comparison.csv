@@ -1,0 +1,2 @@
+model,source,val_macro_f1,test_accuracy,test_balanced_accuracy,test_macro_f1,test_weighted_f1
+Yöntem 2: Aralık + LSTM/GRU,final,0.6643335189642453,0.56657223796034,0.5668544163019301,0.5671342245818515,0.5667628758668078
