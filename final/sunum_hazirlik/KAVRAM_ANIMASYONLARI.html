@@ -1,0 +1,439 @@
+<!doctype html><html lang="tr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kavram Animasyonları — İzleyerek Öğren</title>
+<style>
+:root { --navy:#1f4e79; --blue:#2f74c0; --sky:#e8f1fa; --ink:#20262e; --grey:#6b7a90;
+        --green:#1f7a4d; --red:#b4432e; --card:#ffffff; }
+* { box-sizing: border-box; }
+body { font-family:"Segoe UI",Arial,sans-serif; background:#f0f4f9; color:var(--ink);
+       margin:0; padding:24px; line-height:1.5; }
+.wrap { max-width:980px; margin:0 auto; }
+h1 { color:var(--navy); border-bottom:3px solid var(--blue); padding-bottom:8px; }
+.giris { color:var(--grey); font-size:14px; margin-bottom:18px; }
+.card { background:var(--card); border:1px solid #d5dfea; border-radius:14px;
+        padding:18px 20px; margin:20px 0; box-shadow:0 2px 8px rgba(31,59,87,.07); }
+.card h2 { color:var(--navy); margin:0 0 4px; font-size:19px; }
+.card .ne { background:var(--sky); border-left:4px solid var(--blue); padding:8px 12px;
+            border-radius:0 8px 8px 0; margin:10px 0; font-size:14px; }
+.card .ipucu { color:var(--grey); font-size:13px; font-style:italic; margin:8px 0; }
+canvas { display:block; background:#fbfdff; border:1px solid #d5dfea; border-radius:8px;
+         max-width:100%; margin:10px 0; }
+button { background:var(--blue); color:#fff; border:0; border-radius:8px; padding:8px 16px;
+         font-size:14px; font-weight:600; cursor:pointer; margin:4px 6px 4px 0; }
+button:hover { background:var(--navy); }
+button.ikincil { background:#e3ebf4; color:var(--navy); }
+.durum { font-size:14px; margin:8px 0; min-height:22px; font-weight:600; color:var(--navy); }
+.satir { display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start; }
+.grid { display:grid; gap:3px; margin:8px 0; }
+.hucre { width:44px; height:44px; display:flex; align-items:center; justify-content:center;
+         background:#eef2f7; border:1px solid #c9d6e3; border-radius:6px; font-weight:700;
+         font-size:15px; transition:all .25s; }
+.hucre.vurgu { background:#ffe9a8; border-color:#e0a92e; transform:scale(1.06); }
+.hucre.sonuc { background:#dff1e6; border-color:#66b18a; }
+.hucre.maxv { background:#ffd9d0; border-color:#d97a63; }
+.hucre.bos { background:#fff; color:#c0c9d6; }
+label { font-size:13px; color:var(--grey); font-weight:600; }
+input[type=range] { width:180px; vertical-align:middle; }
+.bar-kap { display:flex; gap:22px; align-items:flex-end; height:150px; margin:10px 0; }
+.bar { width:70px; background:linear-gradient(180deg,#5a95d6,#2f74c0); border-radius:8px 8px 0 0;
+       transition:height .3s; position:relative; }
+.bar span { position:absolute; top:-24px; width:100%; text-align:center; font-weight:800;
+            color:var(--navy); }
+.bar em { position:absolute; bottom:-24px; width:100%; text-align:center; font-style:normal;
+          font-size:12px; color:var(--grey); }
+.bellek { display:flex; gap:5px; align-items:flex-end; height:90px; margin:8px 0; }
+.bellek div { width:34px; background:linear-gradient(180deg,#7fb069,#1f7a4d); border-radius:5px 5px 0 0;
+              transition:height .4s; }
+.cipler { display:flex; gap:6px; flex-wrap:wrap; margin:8px 0; }
+.cip { background:var(--sky); border:1px solid #b9cfe6; color:var(--navy); border-radius:6px;
+       padding:3px 8px; font-size:12px; font-weight:700; transition:all .3s; }
+.cip.aktif { background:#ffe9a8; border-color:#e0a92e; transform:scale(1.12); }
+.kiyas { display:flex; gap:30px; margin:12px 0; }
+.kiyas .k { text-align:center; }
+.kiyas .cubuk { width:90px; background:#e3ebf4; border-radius:8px; height:160px; position:relative;
+                overflow:hidden; }
+.kiyas .dolu { position:absolute; bottom:0; width:100%; transition:height .5s; }
+</style></head><body><div class="wrap">
+
+<h1>🎬 Kavram Animasyonları — İzleyerek Öğren</h1>
+<p class="giris">Her kart bir kavramı CANLI gösterir. Sıra önerisi: yukarıdan aşağı. Her kartta önce
+mavi kutuyu oku, sonra <b>▶ Oynat / Adım</b> ile izle. Kitapçıktaki (SUNUM_CALISMA_NOTLARI.pdf)
+bölüm numaraları kartlarda yazıyor.</p>
+
+<!-- ============ 1. SES -> SPECTROGRAM ============ -->
+<div class="card"><h2>1) Ses dalgası → Spectrogram (Kitapçık Bölüm 2)</h2>
+<div class="ne"><b>Ne izliyorsun?</b> Üstte ham ses dalgası. Sarı pencere sesin üzerinde kayıyor; her
+durduğu yerde "şu an hangi frekanslar var?" diye bakılıyor (Fourier) ve sağdaki haritaya BİR SÜTUN
+ekleniyor. Pencere sona varınca harita tamamlanıyor: işte <b>spectrogram</b> — CNN'in okuduğu "resim".</div>
+<canvas id="c-dalga" width="920" height="110"></canvas>
+<canvas id="c-spek" width="920" height="150"></canvas>
+<button onclick="spekOynat()">▶ Oynat</button>
+<button class="ikincil" onclick="spekSifirla()">↺ Sıfırla</button>
+<div class="durum" id="d-spek">Hazır.</div>
+<p class="ipucu">Dikkat: sesin tizleştiği yerde (dalganın sıklaştığı bölge) haritada parlaklık YUKARI
+kayıyor — spectrogram tam olarak bunu kaydeder.</p></div>
+
+<!-- ============ 2. ARALIKLARA BÖLME ============ -->
+<div class="card"><h2>2) Yöntem 2'nin girdisi: sesi aralıklara bölmek (Bölüm 2)</h2>
+<div class="ne"><b>Ne izliyorsun?</b> Ödevin iki hiperparametresi elinde: <b>aralık sayısı</b> ve
+<b>genişliği</b>. Kaydır, pencerelerin nasıl yerleştiğini gör: kısa kayıtta pencereler ÖRTÜŞÜR, azaltırsan
+aralarında boşluk kalır. Her pencereden 44 sayı çıkar → alttaki zincir GRU'ya giden seridir.</div>
+<label>Aralık sayısı: <span id="v-nint">16</span></label>
+<input type="range" id="s-nint" min="4" max="32" value="16" oninput="aralikCiz()">
+&nbsp;&nbsp;<label>Genişlik (ms): <span id="v-wms">200</span></label>
+<input type="range" id="s-wms" min="80" max="400" step="20" value="200" oninput="aralikCiz()">
+<canvas id="c-aralik" width="920" height="130"></canvas>
+<div class="cipler" id="cips"></div>
+<p class="ipucu">Bizim kazanan: <b>32 aralık × 200 ms</b>. Kayıt ~2,5 sn olduğu için pencereler örtüşüyor —
+kayan pencere gibi. Kaç ayar denersen dene, seri hep sabit uzunlukta çıkar; GRU bunu sever.</p></div>
+
+<!-- ============ 3. KONVOLÜSYON ============ -->
+<div class="card"><h2>3) Konvolüsyon: CNN'in çekirdek işlemi (Bölüm 3)</h2>
+<div class="ne"><b>Ne izliyorsun?</b> Sarı çerçeve = 2×2'lik <b>filtre</b> (desen dedektörü). Resmin
+üzerinde adım adım geziyor; her durakta üst üste gelen sayılar çarpılıp toplanıyor → sağdaki çıktıya
+tek sayı yazılıyor. CNN'de bu filtrelerin İÇİNDEKİ sayılar eğitimle öğrenilir.</div>
+<div class="satir">
+  <div><label>Girdi (4×4)</label><div class="grid" id="g-girdi" style="grid-template-columns:repeat(4,44px)"></div></div>
+  <div><label>Filtre (2×2)</label><div class="grid" id="g-filtre" style="grid-template-columns:repeat(2,44px)"></div></div>
+  <div><label>Çıktı (3×3)</label><div class="grid" id="g-cikti" style="grid-template-columns:repeat(3,44px)"></div></div>
+</div>
+<button onclick="konvAdim()">Adım →</button>
+<button class="ikincil" onclick="konvSifirla()">↺ Sıfırla</button>
+<div class="durum" id="d-konv">Adım'a bas: filtre sol üstten başlayacak.</div></div>
+
+<!-- ============ 4. MAXPOOL ============ -->
+<div class="card"><h2>4) MaxPool: haritayı özetlemek (Bölüm 3)</h2>
+<div class="ne"><b>Ne izliyorsun?</b> 4×4 harita 2×2'lik bölgelere ayrılıyor; her bölgeden SADECE EN BÜYÜK
+değer alınıyor → 2×2 özet. Detay kaybolur ama "bu bölgede güçlü bir desen var" bilgisi kalır; harita
+küçüldükçe ağ daha geniş bağlama bakar.</div>
+<div class="satir">
+  <div><label>Girdi (4×4)</label><div class="grid" id="g-pgirdi" style="grid-template-columns:repeat(4,44px)"></div></div>
+  <div><label>Çıktı (2×2)</label><div class="grid" id="g-pcikti" style="grid-template-columns:repeat(2,44px)"></div></div>
+</div>
+<button onclick="poolAdim()">Adım →</button>
+<button class="ikincil" onclick="poolSifirla()">↺ Sıfırla</button>
+<div class="durum" id="d-pool">Adım'a bas: sol üst 2×2 bölge incelenecek.</div></div>
+
+<!-- ============ 5. GRU ============ -->
+<div class="card"><h2>5) GRU: not defteriyle seri okumak (Bölüm 4)</h2>
+<div class="ne"><b>Ne izliyorsun?</b> Altta 8 aralıklık seri (bizde 32 idi). GRU her adımda bir aralığı okur
+ve yeşil <b>not defterini</b> (gizli durum/hafıza) günceller. <b>z kapısı</b> "defterin ne kadarı
+yenilensin?" kararıdır: z büyükse defter çok değişir, küçükse eski bilgi korunur. Serinin sonunda defter =
+tüm kaydın özeti → sınıflandırma bundan yapılır.</div>
+<div class="cipler" id="gru-seri"></div>
+<label>Not defteri (hafıza):</label>
+<div class="bellek" id="gru-bellek"></div>
+<button onclick="gruAdim()">Adım →</button>
+<button class="ikincil" onclick="gruSifirla()">↺ Sıfırla</button>
+<div class="durum" id="d-gru">Adım'a bas: 1. aralık okunacak.</div>
+<p class="ipucu">Çift yönlü (Bi-GRU) = aynı işlemin bir de SONDAN BAŞA yapılıp iki defterin birleştirilmesi.</p></div>
+
+<!-- ============ 6. EARLY STOPPING ============ -->
+<div class="card"><h2>6) Overfitting ve Early Stopping (Bölüm 1)</h2>
+<div class="ne"><b>Ne izliyorsun?</b> Mavi çizgi = eğitim hatası (sürekli düşer — öğrenci soru bankasında
+hep iyileşir). Turuncu çizgi = <b>deneme sınavı</b> (geçerleme) hatası: önce düşer, sonra DÖNER — ezber
+başladı! Sistem en iyi anı yıldızla işaretler; 8 epoch (sabır) iyileşme olmayınca DURUR ve yıldızlı anın
+modelini geri yükler.</div>
+<canvas id="c-early" width="920" height="230"></canvas>
+<button onclick="earlyOynat()">▶ Oynat</button>
+<button class="ikincil" onclick="earlySifirla()">↺ Sıfırla</button>
+<div class="durum" id="d-early">Hazır.</div></div>
+
+<!-- ============ 7. SOFTMAX ============ -->
+<div class="card"><h2>7) Softmax: puanlardan olasılıklara (Bölüm 5)</h2>
+<div class="ne"><b>Ne izliyorsun?</b> Model 3 sınıfa ham puan (logit) veriyor; kaydırıcılarla oyna.
+Softmax bu puanları <b>toplamı %100 olan olasılıklara</b> çevirir: p = e^puan / toplam. Bir puanı
+yükselttikçe onun olasılığı büyür, diğerlerininki KÜÇÜLÜR — pay sabittir.</div>
+<label>Kızgın: <span id="v-l1">2.0</span></label>
+<input type="range" id="s-l1" min="-2" max="4" step="0.1" value="2" oninput="softCiz()"><br>
+<label>Mutlu: <span id="v-l2">1.0</span></label>
+<input type="range" id="s-l2" min="-2" max="4" step="0.1" value="1" oninput="softCiz()"><br>
+<label>Nötr: <span id="v-l3">0.1</span></label>
+<input type="range" id="s-l3" min="-2" max="4" step="0.1" value="0.1" oninput="softCiz()">
+<div class="bar-kap">
+  <div class="bar" id="b1" style="height:60%"><span id="t1"></span><em>kızgın</em></div>
+  <div class="bar" id="b2" style="height:30%"><span id="t2"></span><em>mutlu</em></div>
+  <div class="bar" id="b3" style="height:10%"><span id="t3"></span><em>nötr</em></div>
+</div>
+<div style="height:26px"></div></div>
+
+<!-- ============ 8. %90 TUZAĞI ============ -->
+<div class="card"><h2>8) %90 doğruluk tuzağı: neden macro-F1? (Bölüm 6)</h2>
+<div class="ne"><b>Ne izliyorsun?</b> 100 örnek: 90'ı A sınıfı, 10'u B. İki modeli karşılaştır.
+"Tembel model" HER ŞEYE A der: doğruluğu %90 (harika görünür!) ama B'yi hiç bilmez — dengeli doğruluk %50.
+"Dürüst model"in doğruluğu benzer ama HER İKİ sınıfı da öğrenmiştir. Dengesiz veride doğruluk YALAN söyler;
+bu yüzden model seçimimizi macro-F1 ile yaptık.</div>
+<button onclick="tuzak(1)">Tembel model (hepsine A)</button>
+<button onclick="tuzak(2)">Dürüst model</button>
+<div class="kiyas">
+  <div class="k"><div class="cubuk"><div class="dolu" id="tz-acc" style="height:0%;background:#5a95d6"></div></div>
+       <b>Doğruluk</b><div id="tz-acc-t">—</div></div>
+  <div class="k"><div class="cubuk"><div class="dolu" id="tz-bal" style="height:0%;background:#7fb069"></div></div>
+       <b>Dengeli doğruluk</b><div id="tz-bal-t">—</div></div>
+</div>
+<div class="durum" id="d-tuzak">Bir model seç.</div>
+<p class="ipucu">MELD'de bunu gerçek hayatta gördük: doğruluk %44 ama dengeli doğruluk %20 → model nötr'e kaçıyor.</p></div>
+
+<p class="giris" style="margin-top:26px">✅ Hepsini izledikten sonra kitapçıktaki Mini Quiz'i (Bölüm 11) çöz.
+Takıldığın kavramın animasyonuna geri dön — göz bir kez gördü mü, tanım aklında kalır.</p>
+
+</div><script>
+"use strict";
+// ---------- 1. SPECTROGRAM ----------
+const cd = document.getElementById('c-dalga'), xd = cd.getContext('2d');
+const cs = document.getElementById('c-spek'), xs = cs.getContext('2d');
+let spekTimer = null, spekPos = 0;
+function sinyal(t){ // t: 0..1 — frekansı zamanla yükselen ses + sabit pes ton
+  const f = 4 + 26*t;                      // tizleşen bileşen
+  return 0.55*Math.sin(2*Math.PI*f*t*14) + 0.35*Math.sin(2*Math.PI*3*t*14);
+}
+function dalgaCiz(pencereX){
+  xd.clearRect(0,0,920,110);
+  xd.strokeStyle = '#2f74c0'; xd.lineWidth = 1.4; xd.beginPath();
+  for(let px=0; px<920; px++){
+    const y = 55 - 42*sinyal(px/920);
+    px ? xd.lineTo(px,y) : xd.moveTo(px,y);
+  }
+  xd.stroke();
+  if(pencereX >= 0){
+    xd.fillStyle = 'rgba(224,169,46,0.25)'; xd.fillRect(pencereX,4,70,102);
+    xd.strokeStyle = '#e0a92e'; xd.lineWidth = 2; xd.strokeRect(pencereX,4,70,102);
+  }
+}
+function spekSutun(px){
+  const t = px/920, f = 4 + 26*t;          // o anki tiz bileşenin frekansı
+  for(let b=0; b<24; b++){
+    const bandF = 2 + b*1.3;
+    let e = Math.exp(-Math.pow((bandF-f)/1.6,2)) + 0.75*Math.exp(-Math.pow((bandF-3)/1.2,2));
+    e = Math.min(1,e);
+    const y = 150 - (b+1)*(150/24);
+    xs.fillStyle = `rgba(31,78,121,${0.08+0.92*e})`;
+    xs.fillRect(px, y, 6, 150/24 - 1);
+  }
+}
+function spekOynat(){
+  if(spekTimer) return;
+  document.getElementById('d-spek').textContent = 'Pencere kayıyor, harita sütun sütun doluyor...';
+  spekTimer = setInterval(()=>{
+    dalgaCiz(spekPos);
+    spekSutun(spekPos);
+    spekPos += 6;
+    if(spekPos > 850){
+      clearInterval(spekTimer); spekTimer = null; dalgaCiz(-1);
+      document.getElementById('d-spek').textContent = '✔ Spectrogram tamamlandı: alçak bandda sabit çizgi (pes ton), yukarı tırmanan iz (tizleşen ses).';
+    }
+  }, 30);
+}
+function spekSifirla(){
+  if(spekTimer){clearInterval(spekTimer); spekTimer=null;}
+  spekPos = 0; xs.clearRect(0,0,920,150); dalgaCiz(-1);
+  document.getElementById('d-spek').textContent = 'Hazır.';
+}
+spekSifirla();
+
+// ---------- 2. ARALIKLAR ----------
+const ca = document.getElementById('c-aralik'), xa = ca.getContext('2d');
+function aralikCiz(){
+  const n = +document.getElementById('s-nint').value;
+  const wms = +document.getElementById('s-wms').value;
+  document.getElementById('v-nint').textContent = n;
+  document.getElementById('v-wms').textContent = wms;
+  xa.clearRect(0,0,920,130);
+  xa.strokeStyle = '#8aa8c8'; xa.lineWidth = 1.1; xa.beginPath();
+  for(let px=0; px<920; px++){
+    const y = 55 - 40*sinyal(px/920);
+    px ? xa.lineTo(px,y) : xa.moveTo(px,y);
+  }
+  xa.stroke();
+  // 920 px = 2500 ms varsay; pencere genişliği px cinsinden:
+  const wpx = wms/2500*920;
+  const span = Math.max(920 - wpx, 0);
+  for(let i=0;i<n;i++){
+    const x = n===1 ? span/2 : span*i/(n-1);
+    xa.fillStyle = 'rgba(47,116,192,0.13)';
+    xa.fillRect(x, 8, wpx, 100);
+    xa.strokeStyle = 'rgba(31,78,121,0.55)';
+    xa.strokeRect(x, 8, wpx, 100);
+  }
+  xa.fillStyle = '#6b7a90'; xa.font = '12px Segoe UI';
+  xa.fillText(`kayıt: 2500 ms • pencere: ${wms} ms • ${n} pencere • kapsama: ${n*wms} ms ${n*wms>2500?'→ ÖRTÜŞÜYOR':'→ boşluklu'}`, 8, 124);
+  const cips = document.getElementById('cips');
+  cips.innerHTML = '';
+  for(let i=0;i<n;i++){ const d = document.createElement('div'); d.className='cip'; d.textContent='44'; cips.appendChild(d); }
+}
+aralikCiz();
+
+// ---------- 3. KONVOLÜSYON ----------
+const G = [[1,2,0,1],[0,1,3,2],[2,1,1,0],[1,0,2,1]];
+const F = [[1,0],[0,1]];
+let konvI = 0;
+function gridKur(id, mat, bos){
+  const el = document.getElementById(id); el.innerHTML='';
+  for(const row of mat) for(const v of row){
+    const d = document.createElement('div');
+    d.className = 'hucre' + (bos ? ' bos' : '');
+    d.textContent = bos ? '·' : v;
+    el.appendChild(d);
+  }
+}
+function konvSifirla(){
+  konvI = 0;
+  gridKur('g-girdi', G, false);
+  gridKur('g-filtre', F, false);
+  gridKur('g-cikti', [[0,0,0],[0,0,0],[0,0,0]], true);
+  document.getElementById('d-konv').textContent = "Adım'a bas: filtre sol üstten başlayacak.";
+}
+function konvAdim(){
+  if(konvI >= 9){ document.getElementById('d-konv').textContent = '✔ Bitti — 9 konumun 9 sonucu. CNN bu işlemi yüzlerce filtreyle yapar.'; return; }
+  const r = Math.floor(konvI/3), c = konvI%3;
+  const gEl = document.getElementById('g-girdi').children;
+  for(const h of gEl) h.classList.remove('vurgu');
+  let toplam = 0, terimler = [];
+  for(let i=0;i<2;i++) for(let j=0;j<2;j++){
+    gEl[(r+i)*4 + (c+j)].classList.add('vurgu');
+    toplam += G[r+i][c+j]*F[i][j];
+    if(F[i][j]!==0) terimler.push(`${G[r+i][c+j]}·${F[i][j]}`);
+  }
+  const oEl = document.getElementById('g-cikti').children[konvI];
+  oEl.textContent = toplam; oEl.classList.remove('bos'); oEl.classList.add('sonuc');
+  document.getElementById('d-konv').textContent = `Konum (${r+1},${c+1}): ${terimler.join(' + ')} = ${toplam}`;
+  konvI++;
+}
+konvSifirla();
+
+// ---------- 4. MAXPOOL ----------
+const P = [[1,5,2,0],[3,2,1,4],[0,1,7,2],[2,6,3,1]];
+let poolI = 0;
+function poolSifirla(){
+  poolI = 0;
+  gridKur('g-pgirdi', P, false);
+  gridKur('g-pcikti', [[0,0],[0,0]], true);
+  document.getElementById('d-pool').textContent = "Adım'a bas: sol üst 2×2 bölge incelenecek.";
+}
+function poolAdim(){
+  if(poolI >= 4){ document.getElementById('d-pool').textContent = '✔ Bitti — 16 sayı 4 sayıya özetlendi, güçlü desenler korundu.'; return; }
+  const r = Math.floor(poolI/2), c = poolI%2;
+  const gEl = document.getElementById('g-pgirdi').children;
+  for(const h of gEl){ h.classList.remove('vurgu'); h.classList.remove('maxv'); }
+  let maxV = -1, maxIdx = 0;
+  for(let i=0;i<2;i++) for(let j=0;j<2;j++){
+    const idx = (2*r+i)*4 + (2*c+j);
+    gEl[idx].classList.add('vurgu');
+    if(P[2*r+i][2*c+j] > maxV){ maxV = P[2*r+i][2*c+j]; maxIdx = idx; }
+  }
+  gEl[maxIdx].classList.add('maxv');
+  const oEl = document.getElementById('g-pcikti').children[poolI];
+  oEl.textContent = maxV; oEl.classList.remove('bos'); oEl.classList.add('sonuc');
+  document.getElementById('d-pool').textContent = `Bölge (${r+1},${c+1}): en büyük = ${maxV} → çıktıya yazıldı.`;
+  poolI++;
+}
+poolSifirla();
+
+// ---------- 5. GRU ----------
+const gruGirdi = [0.8, 0.3, 0.9, 0.2, 0.6, 0.95, 0.4, 0.7];
+const gruZ =     [0.85,0.30,0.75,0.20,0.55,0.90, 0.25,0.60];
+let gruI = 0, bellekDurum = [0.2,0.2,0.2,0.2,0.2,0.2];
+function gruKur(){
+  const seri = document.getElementById('gru-seri'); seri.innerHTML='';
+  gruGirdi.forEach((v,i)=>{ const d=document.createElement('div'); d.className='cip';
+    d.id='gc'+i; d.textContent=`aralık ${i+1}`; seri.appendChild(d); });
+  const b = document.getElementById('gru-bellek'); b.innerHTML='';
+  bellekDurum.forEach(v=>{ const d=document.createElement('div'); d.style.height=(v*100)+'%'; b.appendChild(d); });
+}
+function gruSifirla(){
+  gruI = 0; bellekDurum = [0.2,0.2,0.2,0.2,0.2,0.2]; gruKur();
+  document.getElementById('d-gru').textContent = "Adım'a bas: 1. aralık okunacak.";
+}
+function gruAdim(){
+  if(gruI >= 8){ document.getElementById('d-gru').textContent = '✔ Seri bitti — defterdeki son durum tüm kaydın özeti; sınıflandırma bundan yapılır. (mean pooling: her adımdaki defterlerin ortalaması)'; return; }
+  for(let i=0;i<8;i++) document.getElementById('gc'+i).classList.toggle('aktif', i===gruI);
+  const z = gruZ[gruI], x = gruGirdi[gruI];
+  bellekDurum = bellekDurum.map((h,k)=>{
+    const aday = 0.15 + 0.8*Math.abs(Math.sin(x*7 + k*1.7));   // yeni aday not (temsili)
+    return (1-z)*h + z*aday;                                    // GRU güncelleme formülü!
+  });
+  const b = document.getElementById('gru-bellek').children;
+  bellekDurum.forEach((v,k)=> b[k].style.height = (v*100)+'%');
+  document.getElementById('d-gru').textContent =
+    `Adım ${gruI+1}: z kapısı = ${z.toFixed(2)} → defterin %${Math.round(z*100)}'i yeni bilgiyle güncellendi, %${Math.round((1-z)*100)}'i korundu.`;
+  gruI++;
+}
+gruSifirla();
+
+// ---------- 6. EARLY STOPPING ----------
+const ce = document.getElementById('c-early'), xe = ce.getContext('2d');
+let earlyTimer = null, ep = 0, bestVal = 1e9, bestEp = 0, sabir = 0;
+function trainLoss(e){ return 1.45*Math.exp(-e/8) + 0.18; }
+function valLoss(e){ return 0.95*Math.exp(-e/6) + 0.44 + Math.max(0, e-12)*0.012 + 0.02*Math.sin(e*2.1); }
+function eksen(){
+  xe.clearRect(0,0,920,230);
+  xe.strokeStyle='#c9d6e3'; xe.beginPath(); xe.moveTo(45,10); xe.lineTo(45,200); xe.lineTo(900,200); xe.stroke();
+  xe.fillStyle='#6b7a90'; xe.font='12px Segoe UI';
+  xe.fillText('hata (loss)', 8, 20); xe.fillText('epoch →', 850, 218);
+  xe.fillStyle='#2f74c0'; xe.fillText('— eğitim', 70, 20);
+  xe.fillStyle='#e0862e'; xe.fillText('— geçerleme (deneme sınavı)', 140, 20);
+}
+function nokta(e, v){ return [45 + e*21, 200 - (v/1.7)*185]; }
+function earlyOynat(){
+  if(earlyTimer) return;
+  earlySifirla();
+  document.getElementById('d-early').textContent = 'Eğitim başladı...';
+  earlyTimer = setInterval(()=>{
+    if(ep > 0){
+      let [x1,y1] = nokta(ep-1, trainLoss(ep-1)), [x2,y2] = nokta(ep, trainLoss(ep));
+      xe.strokeStyle='#2f74c0'; xe.lineWidth=2; xe.beginPath(); xe.moveTo(x1,y1); xe.lineTo(x2,y2); xe.stroke();
+      [x1,y1] = nokta(ep-1, valLoss(ep-1)); [x2,y2] = nokta(ep, valLoss(ep));
+      xe.strokeStyle='#e0862e'; xe.beginPath(); xe.moveTo(x1,y1); xe.lineTo(x2,y2); xe.stroke();
+    }
+    const v = valLoss(ep);
+    if(v < bestVal - 1e-4){ bestVal = v; bestEp = ep; sabir = 0; }
+    else sabir++;
+    document.getElementById('d-early').textContent =
+      `Epoch ${ep} • geçerleme=${v.toFixed(3)} • en iyi=epoch ${bestEp} • sabır sayacı: ${sabir}/8`;
+    if(sabir >= 8 || ep >= 38){
+      clearInterval(earlyTimer); earlyTimer = null;
+      const [bx,by] = nokta(bestEp, valLoss(bestEp));
+      xe.fillStyle='#1f7a4d'; xe.font='20px Segoe UI'; xe.fillText('★', bx-8, by-8);
+      const [sx] = nokta(ep, 0);
+      xe.strokeStyle='#b4432e'; xe.setLineDash([5,4]); xe.beginPath(); xe.moveTo(sx,15); xe.lineTo(sx,200); xe.stroke(); xe.setLineDash([]);
+      document.getElementById('d-early').textContent =
+        `⏹ DURDU (epoch ${ep}): 8 epoch iyileşme yok. ★ Epoch ${bestEp}'in modeli geri yüklendi — eğitim çizgisi düşmeye devam etse de o artık EZBER, işimize yaramaz.`;
+    }
+    ep++;
+  }, 240);
+}
+function earlySifirla(){
+  if(earlyTimer){clearInterval(earlyTimer); earlyTimer=null;}
+  ep = 0; bestVal = 1e9; bestEp = 0; sabir = 0; eksen();
+  document.getElementById('d-early').textContent = 'Hazır.';
+}
+earlySifirla();
+
+// ---------- 7. SOFTMAX ----------
+function softCiz(){
+  const l = [ +document.getElementById('s-l1').value,
+              +document.getElementById('s-l2').value,
+              +document.getElementById('s-l3').value ];
+  document.getElementById('v-l1').textContent = l[0].toFixed(1);
+  document.getElementById('v-l2').textContent = l[1].toFixed(1);
+  document.getElementById('v-l3').textContent = l[2].toFixed(1);
+  const e = l.map(v=>Math.exp(v)), s = e[0]+e[1]+e[2], p = e.map(v=>v/s);
+  ['b1','b2','b3'].forEach((id,i)=>{
+    document.getElementById(id).style.height = (p[i]*100)+'%';
+    document.getElementById('t'+(i+1)).textContent = '%'+Math.round(p[i]*100);
+  });
+}
+softCiz();
+
+// ---------- 8. %90 TUZAĞI ----------
+function tuzak(m){
+  let acc, bal, ad;
+  if(m===1){ acc = 0.90; bal = 0.50; ad = 'Tembel model: 90 A doğru + 0 B doğru → doğruluk %90 ama B recall = 0 → dengeli doğruluk %50. Görünüşte iyi, gerçekte kör.'; }
+  else     { acc = 0.92; bal = 0.82; ad = 'Dürüst model: 85/90 A + 7/10 B → doğruluk %92 VE dengeli doğruluk %82. İki sınıfı da gerçekten öğrenmiş.'; }
+  document.getElementById('tz-acc').style.height = (acc*100)+'%';
+  document.getElementById('tz-bal').style.height = (bal*100)+'%';
+  document.getElementById('tz-acc-t').textContent = '%'+Math.round(acc*100);
+  document.getElementById('tz-bal-t').textContent = '%'+Math.round(bal*100);
+  document.getElementById('d-tuzak').textContent = ad;
+}
+</script></body></html>
