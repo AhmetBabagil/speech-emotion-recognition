@@ -178,8 +178,13 @@ class IntervalConfig:
     n_mfcc: int = 13          # aralık başına MFCC katsayısı sayısı
     n_fft: int = 512          # aralık içi kısa FFT penceresi (32 ms)
     hop_length: int = 160     # aralık içi atlama (10 ms)
-    use_pitch: bool = True    # aralık başına 3 pitch özniteliği (F0) eklensin mi
-    feature_version: int = 2  # öznitelik seti sürümü (2 = pitch + jitter/shimmer)
+    # --- Ablasyon bayrakları: her mantıklı öznitelik grubu ayrı açılıp kapanır.
+    use_pitch: bool = True     # +3: ortalama log-perde, perde std, tonlu oran (F0)
+    use_jitter: bool = True    # +2: jitter (perde titremesi) + shimmer (genlik titremesi)
+    use_contrast: bool = True  # +7: spektral kontrast (tepe-vadi enerji farkı, 7 bant)
+    use_delta2: bool = True    # +13: delta-delta MFCC (ivme = değişimin değişimi)
+    use_bandwidth: bool = True # +2: spektral bant genişliği + spektral düzlük (flatness)
+    feature_version: int = 3   # öznitelik seti sürümü (fingerprint'i ayırır)
 
     def validate(self) -> None:
         if min(self.sample_rate, self.n_intervals, self.interval_ms,
@@ -194,13 +199,26 @@ class IntervalConfig:
 
     @property
     def feature_dim(self) -> int:
-        '''Aralık başına öznitelik sayısı.
+        '''Aralık başına öznitelik sayısı — açık bayraklara göre hesaplanır.
 
-        13 MFCC ortalaması + 13 MFCC std'si + 13 delta-MFCC ortalaması
-        + 5 skaler istatistik (enerji, enerji std, ZCR, centroid, rolloff) = 47 (+ 3 pitch).
+        Taban: 13 MFCC ort + 13 MFCC std + 13 delta-MFCC ort + 5 skaler
+        (enerji, enerji std, ZCR, centroid, rolloff) = 44.
+        Bayraklar: +3 pitch, +2 jitter/shimmer, +7 kontrast, +13 delta-delta,
+        +2 bant genişliği/düzlük.
         '''
 
-        return 3 * self.n_mfcc + (10 if self.use_pitch else 5)   # +3 pitch +2 jitter/shimmer
+        boyut = 3 * self.n_mfcc + 5           # taban 44
+        if self.use_pitch:
+            boyut += 3
+        if self.use_jitter:
+            boyut += 2
+        if self.use_contrast:
+            boyut += 7
+        if self.use_delta2:
+            boyut += self.n_mfcc               # delta-delta ortalaması (13)
+        if self.use_bandwidth:
+            boyut += 2
+        return boyut
 
     @property
     def shape(self) -> tuple[int, int]:
@@ -251,6 +269,13 @@ def _interval_features(segment: np.ndarray, config: IntervalConfig) -> np.ndarra
         delta = librosa.feature.delta(mfcc, width=min(9, mfcc.shape[1] // 2 * 2 + 1))
     else:
         delta = np.zeros_like(mfcc)
+    # Delta-delta MFCC (ivme): değişimin değişimi — hızlanan/yavaşlayan tını akışı.
+    if config.use_delta2:
+        if mfcc.shape[1] >= 2:
+            delta2 = librosa.feature.delta(mfcc, order=2,
+                                           width=min(9, mfcc.shape[1] // 2 * 2 + 1))
+        else:
+            delta2 = np.zeros_like(mfcc)
     # STFT'yi bir kez hesaplayıp enerji ve spektral özniteliklerde paylaşıyoruz.
     stft = np.abs(
         librosa.stft(segment, n_fft=config.n_fft, hop_length=config.hop_length)
@@ -269,7 +294,7 @@ def _interval_features(segment: np.ndarray, config: IntervalConfig) -> np.ndarra
         float(centroid.mean() / (config.sample_rate / 2)),      # spektral ağırlık merkezi (0-1)
         float(rolloff.mean() / (config.sample_rate / 2)),       # enerji %85 sınırı (0-1)
     ]
-    if config.use_pitch:
+    if config.use_pitch or config.use_jitter:
         # Pitch (temel frekans F0): tonlamanın taşıyıcısı; duygunun en güçlü ipucu.
         # pyin her çerçeve için F0 + "tonlu mu" bilgisi verir. Aralık içi kısa
         # sinyalde daha seyrek çerçeve (2x hop) yeterli ve pyin'i belirgin hızlandırır.
@@ -280,6 +305,7 @@ def _interval_features(segment: np.ndarray, config: IntervalConfig) -> np.ndarra
             hop_length=config.hop_length * 2,   # daha az çerçeve -> daha hızlı
         )
         f0_tonlu = f0[voiced_flag]              # yalnızca tonlu çerçevelerin perdesi
+    if config.use_pitch:
         if len(f0_tonlu) > 0:
             pitch_ort = float(np.log1p(np.mean(f0_tonlu)))   # log-perde ortalaması
             pitch_std = float(np.std(f0_tonlu))              # perde dalgalanması
@@ -287,6 +313,8 @@ def _interval_features(segment: np.ndarray, config: IntervalConfig) -> np.ndarra
             pitch_ort = 0.0                     # hiç tonlu çerçeve yoksa (fısıltı/sessizlik)
             pitch_std = 0.0
         tonlu_oran = float(np.mean(voiced_flag))             # aralığın ne kadarı tonlu
+        skalerler += [pitch_ort, pitch_std, tonlu_oran]
+    if config.use_jitter:
         # Jitter: ardışık perde değerleri arasındaki ortalama görece değişim.
         # Yüksek jitter = "titrek/gergin ses" -> duygusal uyarılma göstergesi.
         if len(f0_tonlu) >= 2:
@@ -298,14 +326,31 @@ def _interval_features(segment: np.ndarray, config: IntervalConfig) -> np.ndarra
             shimmer = float(np.mean(np.abs(np.diff(rms))) / (np.mean(rms) + 1e-6))
         else:
             shimmer = 0.0
-        skalerler += [pitch_ort, pitch_std, tonlu_oran, jitter, shimmer]
+        skalerler += [jitter, shimmer]
+    if config.use_contrast:
+        # Spektral kontrast: her frekans bandında tepe-vadi enerji farkı. Sesin
+        # "tokluğu/boğukluğu" -> MFCC'nin yakalamadığı tamamlayıcı doku bilgisi.
+        kontrast = librosa.feature.spectral_contrast(S=stft, sr=config.sample_rate)
+        skalerler += [float(v) for v in kontrast.mean(axis=1)]   # 7 bant ortalaması
+    if config.use_bandwidth:
+        # Spektral bant genişliği: enerjinin merkez etrafındaki yayılımı.
+        # Spektral düzlük (flatness): sesin ne kadar "gürültü gibi" (1) veya
+        # "tonlu" (0) olduğu — konuşma/gürültü ayrımına duyarlı.
+        bandwidth = librosa.feature.spectral_bandwidth(S=stft, sr=config.sample_rate)[0]
+        flatness = librosa.feature.spectral_flatness(S=stft)[0]
+        skalerler += [
+            float(bandwidth.mean() / (config.sample_rate / 2)),  # 0-1 ölçekli
+            float(flatness.mean()),
+        ]
 
     parts = [
         mfcc.mean(axis=1),      # 13 değer: ortalama tını
         mfcc.std(axis=1),       # 13 değer: tınının aralık içi değişkenliği
         delta.mean(axis=1),     # 13 değer: ortalama değişim hızı
-        skalerler,
     ]
+    if config.use_delta2:
+        parts.append(delta2.mean(axis=1))   # 13 değer: ortalama ivme
+    parts.append(skalerler)
     vector = np.concatenate([np.asarray(p, dtype=np.float32).ravel() for p in parts])
     if vector.shape != (config.feature_dim,):
         raise ValueError(f'Beklenmeyen aralık vektörü boyutu: {vector.shape}.')
