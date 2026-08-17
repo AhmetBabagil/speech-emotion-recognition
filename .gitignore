@@ -52,4 +52,6 @@ Thumbs.db
 # Keep the assignment-specific VS Code settings required by the course.
 !odev2/.vscode/
 !odev2/.vscode/settings.json
-final/PROJE_FINAL_RAPORU.html
+
+# Final model weights and report HTML are deliverables — keep them tracked
+!final/outputs/**/*.pt
