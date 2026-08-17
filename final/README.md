@@ -1,0 +1,49 @@
+# Final Projesi — Konuşmadan Duygu Tanıma
+
+YAP 470 final ödevi: CREMA-D üzerinde, önceden eğitilmiş model kullanmadan
+iki yöntem.
+
+- **Yöntem 1:** log-mel spectrogram + sıfırdan CNN
+- **Yöntem 2:** aralık başına akustik öznitelik serisi + sıfırdan LSTM/GRU
+  (aralık sayısı ve genişliği hiperparametre)
+
+Ortak protokol: konuşmacı-bağımsız eğitim/geçerleme/test bölmesi,
+sınıf-ağırlıklı cross-entropy, geçerleme macro-F1 üzerinde erken durdurma,
+geçerleme temelli hiperparametre araması + yerel iyileştirme turu. Test
+kümesine yalnızca seçilen modeller dokunur.
+
+## Çalıştırma sırası
+
+```bash
+# 1. Ana deney: arama + iyileştirme turu + test değerlendirmesi
+python final/run_experiment.py --grid-mode report --feature-workers 8
+
+# 2. Geliştirme aşaması: SpecAugment / dikkat havuzlama / gürültü varyantları
+python final/improve.py
+
+# Hızlı sağlamlık kontrolü (küçük veri, dakikalar içinde):
+python final/run_experiment.py --grid-mode quick --limit-per-split 60
+
+# Tek dosya tahmini (demo):
+python final/predict.py ses.wav --model final/outputs/cremad/cnn/winner_model.pt
+```
+
+## Dosyalar
+
+| Dosya | İçerik |
+|---|---|
+| `features.py` | Mel görüntüsü (Yöntem 1) ve aralık öznitelik serisi (Yöntem 2) çıkarımı |
+| `dataset.py` | Öznitelik önbelleği, yalnız-eğitim z-skor normalizasyonu, tensör veri kümeleri |
+| `models.py` | Sıfırdan CNN ve LSTM/GRU (last/mean/max/attention havuzlama) |
+| `training.py` | Ağırlıklı loss + erken durdurmalı ortak eğitim döngüsü |
+| `search_space.py` | Deterministik hiperparametre adayları ve iyileştirme uzayları |
+| `pipeline.py` | Bölme → öznitelik → arama → iyileştirme → test akışı |
+| `augment.py` | SpecAugment maskeleme ve öznitelik gürültüsü (yalnız eğitim yığınlarına) |
+| `improve.py` | Geliştirme aşaması koşucusu |
+| `predict.py` | Kaydedilen modelle WAV tahmini (demo) |
+| `kaynaklar.md` | Literatür taraması ve kaynakça notları |
+| `tests/` | Öznitelik/model birim testleri (`python -m pytest final/tests -q`) |
+
+Çıktılar `final/outputs/<corpus>/` altına yazılır: `search_log.csv`,
+`winner.json`, öğrenme eğrisi, test metrikleri + karışıklık matrisi,
+`improvements.csv`, `method_comparison.csv`, model ağırlıkları.

@@ -12,6 +12,11 @@ odev1/RAPOR.html
 odev1/cache/
 odev1/outputs/
 
+# Final assignment diagnostic artifacts (real outputs stay in final/outputs)
+final/smoke_outputs/
+final_run*.log
+improve_run*.log
+
 # Submission package (zips/bundles for Drive upload — derived artifacts)
 submission/
 /submission 2/
@@ -47,3 +52,4 @@ Thumbs.db
 # Keep the assignment-specific VS Code settings required by the course.
 !odev2/.vscode/
 !odev2/.vscode/settings.json
+final/PROJE_FINAL_RAPORU.html
