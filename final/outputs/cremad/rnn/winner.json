@@ -1,0 +1,121 @@
+{
+  "method": "rnn",
+  "feature_config": {
+    "sample_rate": 16000,
+    "n_intervals": 32,
+    "interval_ms": 200,
+    "n_mfcc": 13,
+    "n_fft": 512,
+    "hop_length": 160
+  },
+  "model_config": {
+    "rnn_type": "gru",
+    "hidden_size": 192,
+    "num_layers": 2,
+    "bidirectional": true,
+    "dropout": 0.3,
+    "pooling": "mean",
+    "optim": {
+      "batch_size": 64,
+      "learning_rate": 0.001,
+      "weight_decay": 0.0001,
+      "patience": 8
+    }
+  },
+  "parameters": 942342,
+  "best_epoch": 9,
+  "val_metrics": {
+    "accuracy": 0.563588850174216,
+    "balanced_accuracy": 0.5673185941043085,
+    "macro_f1": 0.5638142387667547,
+    "weighted_f1": 0.5615265690866225,
+    "per_class": {
+      "angry": {
+        "precision": 0.61,
+        "recall": 0.6224489795918368,
+        "f1": 0.6161616161616161,
+        "support": 196
+      },
+      "disgust": {
+        "precision": 0.5208333333333334,
+        "recall": 0.5102040816326531,
+        "f1": 0.5154639175257731,
+        "support": 196
+      },
+      "fear": {
+        "precision": 0.6164383561643836,
+        "recall": 0.45918367346938777,
+        "f1": 0.5263157894736842,
+        "support": 196
+      },
+      "happy": {
+        "precision": 0.48936170212765956,
+        "recall": 0.5867346938775511,
+        "f1": 0.5336426914153132,
+        "support": 196
+      },
+      "neutral": {
+        "precision": 0.605,
+        "recall": 0.7202380952380952,
+        "f1": 0.657608695652174,
+        "support": 168
+      },
+      "sad": {
+        "precision": 0.5657142857142857,
+        "recall": 0.5051020408163265,
+        "f1": 0.5336927223719676,
+        "support": 196
+      }
+    },
+    "confusion_matrix": [
+      [
+        122,
+        24,
+        12,
+        29,
+        5,
+        4
+      ],
+      [
+        23,
+        100,
+        11,
+        27,
+        16,
+        19
+      ],
+      [
+        14,
+        16,
+        90,
+        34,
+        10,
+        32
+      ],
+      [
+        28,
+        12,
+        17,
+        115,
+        13,
+        11
+      ],
+      [
+        8,
+        16,
+        0,
+        13,
+        121,
+        10
+      ],
+      [
+        5,
+        24,
+        16,
+        17,
+        35,
+        99
+      ]
+    ]
+  }
+}

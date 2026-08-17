@@ -1,0 +1,40 @@
+{
+  "method": "rnn",
+  "baseline_val_macro_f1": 0.5638142387667547,
+  "variants": [
+    {
+      "variant": "attention_pooling",
+      "val_accuracy": 0.5566202090592335,
+      "val_balanced_accuracy": 0.560515873015873,
+      "val_macro_f1": 0.554205358752878,
+      "val_weighted_f1": 0.5525491975236391,
+      "delta_vs_winner": -0.00960888001387672,
+      "best_epoch": 14,
+      "epochs_trained": 22,
+      "seconds": 11.2
+    },
+    {
+      "variant": "feature_noise",
+      "val_accuracy": 0.5609756097560976,
+      "val_balanced_accuracy": 0.5644841269841271,
+      "val_macro_f1": 0.5601659342802406,
+      "val_weighted_f1": 0.5577038567965609,
+      "delta_vs_winner": -0.003648304486514098,
+      "best_epoch": 8,
+      "epochs_trained": 16,
+      "seconds": 7.7
+    },
+    {
+      "variant": "attention_plus_noise",
+      "val_accuracy": 0.5627177700348432,
+      "val_balanced_accuracy": 0.5666099773242631,
+      "val_macro_f1": 0.55969464875663,
+      "val_weighted_f1": 0.5578880247320057,
+      "delta_vs_winner": -0.004119590010124741,
+      "best_epoch": 15,
+      "epochs_trained": 23,
+      "seconds": 11.7
+    }
+  ],
+  "improved_on_validation": false
+}
