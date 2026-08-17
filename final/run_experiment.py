@@ -32,6 +32,7 @@ def main() -> None:
     parser.add_argument('--cache-root', default='data/cache/final')
     parser.add_argument('--out-root')
     parser.add_argument('--corpus', default='cremad', choices=['cremad', 'meld'])
+
     # Hangi yöntemler koşulacak (varsayılan: ikisi de).
     parser.add_argument(
         '--methods', nargs='+', default=['cnn', 'rnn'], choices=['cnn', 'rnn']
