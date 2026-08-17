@@ -1,7 +1,9 @@
-'''Feature caching, train-only standardization and in-memory datasets.
+'''Öznitelik önbelleği, yalnız-eğitimle normalizasyon ve bellek-içi veri kümeleri.
 
-Both methods produce a fixed-shape float32 array per clip, so one cache and
-one loader cover the CNN images and the RNN series alike.
+İki yöntem de kayıt başına sabit boyutlu bir float32 dizi ürettiği için tek
+bir önbellek ve tek bir yükleyici, hem CNN görüntülerini hem RNN serilerini
+karşılar. Öznitelik çıkarımı pahalı olduğundan her sonuç diske yazılır ve
+sonraki denemelerde saniyeler içinde geri okunur.
 '''
 
 from __future__ import annotations
@@ -24,7 +26,14 @@ def feature_cache_path(
     cache_dir: str | Path,
     fingerprint: str,
 ) -> Path:
-    '''Stable cache location unique to the source file and feature settings.'''
+    '''Kaynak dosyaya ve öznitelik ayarlarına özel, kararlı önbellek yolu üretir.
+
+    Yol iki şeye bağlıdır:
+    1. fingerprint: öznitelik ayarlarının kimliği (klasör adı) — farklı
+       ayarların çıktıları karışamaz.
+    2. Kaynak dosyanın yolu + boyutu + değişiklik zamanı — ses dosyası
+       değişirse eski önbellek otomatik geçersizleşir.
+    '''
 
     audio_path = Path(audio_path)
     stat = audio_path.stat()
@@ -42,19 +51,22 @@ def load_or_extract(
     extract: Callable[[str | Path], np.ndarray],
     expected_shape: tuple[int, ...],
 ) -> np.ndarray:
-    '''Return a valid cached array or atomically compute and store one.'''
+    '''Geçerli bir önbellek kaydı varsa onu döndürür; yoksa hesaplayıp saklar.'''
 
     cache_path = feature_cache_path(audio_path, cache_dir, fingerprint)
     if cache_path.is_file():
         try:
             cached = np.asarray(np.load(cache_path, allow_pickle=False), dtype=np.float32)
+            # Boyut ve sonluluk kontrolü: bozuk kayıt varsa aşağıda yeniden üretilir.
             if cached.shape == expected_shape and np.isfinite(cached).all():
                 return cached
         except (OSError, ValueError):
-            pass  # partial/stale cache entry is replaced below
+            pass  # yarım kalmış/bozuk önbellek dosyası aşağıda değiştirilir
 
     array = extract(audio_path)
     cache_path.parent.mkdir(parents=True, exist_ok=True)
+    # Önce geçici ada yazıp sonra atomik os.replace: iki işlem aynı anda
+    # yazsa bile dosya asla yarım hâlde okunmaz.
     temp_path = cache_path.with_suffix(f'.{os.getpid()}.{threading.get_ident()}.tmp.npy')
     np.save(temp_path, array, allow_pickle=False)
     os.replace(temp_path, cache_path)
@@ -62,6 +74,8 @@ def load_or_extract(
 
 
 def _progress(iterator: Iterable, total: int, description: str, enabled: bool):
+    '''tqdm kuruluysa ilerleme çubuğu göster; değilse sessizce devam et.'''
+
     if not enabled:
         return iterator
     try:
@@ -83,13 +97,17 @@ def load_feature_tensor(
     show_progress: bool = True,
     description: str = 'Öznitelikler',
 ) -> tuple[np.ndarray, np.ndarray]:
-    '''Extract/cache every record of a fold into one [N, ...] tensor.'''
+    '''Bir katmanın (fold) tüm kayıtlarını tek bir [N, ...] tensöre toplar.
+
+    workers > 1 verilirse dosyalar iş parçacıklarıyla paralel işlenir
+    (öznitelik çıkarımı G/Ç + librosa ağırlıklı olduğu için thread yeterli).
+    '''
 
     records = records.reset_index(drop=True)
     paths = records['path'].astype(str).tolist()
     labels = records['label_idx'].to_numpy(dtype=np.int64, copy=True)
     if not paths:
-        raise ValueError('Cannot build features from an empty fold.')
+        raise ValueError('Boş katmandan öznitelik üretilemez.')
 
     def load_one(path: str) -> np.ndarray:
         return load_or_extract(path, cache_dir, fingerprint, extract, expected_shape)
@@ -104,17 +122,22 @@ def load_feature_tensor(
 
     features = np.stack(arrays).astype(np.float32, copy=False)
     if features.shape != (len(records), *expected_shape):
-        raise ValueError(f'Unexpected feature tensor shape: {features.shape}.')
+        raise ValueError(f'Beklenmeyen öznitelik tensörü boyutu: {features.shape}.')
     return features, labels
 
 
 @dataclass(frozen=True)
 class Standardizer:
-    '''Z-score parameters fitted only on the training fold.
+    '''YALNIZCA eğitim katmanından öğrenilen z-skor parametreleri.
 
-    For [N, mels, T] mel images the statistics are per mel bin; for
-    [N, T, D] interval series they are per feature dimension. Both reduce
-    over the sample and time axes, i.e. everything except ``feature_axis``.
+    Neden önemli: ortalama/std'yi tüm veriden öğrenmek, test bilgisinin
+    eğitime sızması demektir (data leakage). Burada fit() sadece eğitim
+    verisiyle çağrılır; geçerleme ve test aynı parametrelerle dönüştürülür.
+
+    Eksen mantığı: [N, mels, T] mel görüntülerinde istatistik mel bandı
+    başına (feature_axis=1), [N, T, D] serilerde öznitelik boyutu başına
+    (feature_axis=2) tutulur; kalan eksenler (örnek + zaman) üzerinden
+    ortalama alınır.
     '''
 
     mean: np.ndarray
@@ -125,17 +148,21 @@ class Standardizer:
     def fit(cls, features: np.ndarray, feature_axis: int, epsilon: float = 1e-6) -> 'Standardizer':
         features = np.asarray(features)
         if features.ndim != 3 or len(features) == 0:
-            raise ValueError(f'Expected a non-empty 3-D tensor, got {features.shape}.')
+            raise ValueError(f'Boş olmayan 3 boyutlu tensör bekleniyor: {features.shape}.')
         if not np.isfinite(features).all():
-            raise ValueError('Training features must be finite.')
+            raise ValueError('Eğitim öznitelikleri sonlu olmalı.')
         axes = tuple(axis for axis in range(features.ndim) if axis != feature_axis)
         mean = features.mean(axis=axes, dtype=np.float64).astype(np.float32)
         scale = features.std(axis=axes, dtype=np.float64).astype(np.float32)
+        # Sabit (varyanssız) boyutlarda sıfıra bölmeyi önle.
         scale = np.where(scale < epsilon, 1.0, scale)
         return cls(mean=mean, scale=scale, feature_axis=feature_axis)
 
     def transform(self, features: np.ndarray) -> np.ndarray:
+        '''(x - ortalama) / std dönüşümünü doğru eksende uygular.'''
+
         features = np.asarray(features, dtype=np.float32)
+        # mean/scale vektörlerini yayın (broadcast) için doğru şekle getir.
         shape = [1] * features.ndim
         shape[self.feature_axis] = self.mean.shape[0]
         mean = self.mean.reshape(shape)
@@ -144,14 +171,19 @@ class Standardizer:
 
 
 class ArrayDataset(Dataset):
-    '''In-memory tensors reused across hyperparameter trials.'''
+    '''Hiperparametre denemeleri boyunca yeniden kullanılan bellek-içi tensörler.
+
+    Tüm öznitelikler zaten RAM'e sığdığı için diskten tekrar tekrar okumak
+    yerine bir kez tensöre çevirip DataLoader'a veriyoruz — denemeler arası
+    en hızlı yol bu.
+    '''
 
     def __init__(self, features: np.ndarray, labels: np.ndarray) -> None:
         features = np.ascontiguousarray(features, dtype=np.float32)
         labels = np.ascontiguousarray(labels, dtype=np.int64)
         if labels.ndim != 1 or len(features) != len(labels):
             raise ValueError(
-                f'Invalid feature/label shapes: {features.shape}, {labels.shape}.'
+                f'Geçersiz öznitelik/etiket boyutları: {features.shape}, {labels.shape}.'
             )
         self.features = torch.from_numpy(features)
         self.labels = torch.from_numpy(labels)

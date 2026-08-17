@@ -1,4 +1,13 @@
-'''Tests for split integrity and Assignment 3 pipeline artifacts.'''
+'''Bölme bütünlüğü ve Ödev 3 pipeline çıktılarının testleri.
+
+Dosyanın kalbi, ``test_test_fold_is_untouched_until_validation_search_finishes``
+testidir: pipeline'ın olay sırasını (öznitelik yüklemeleri, eğitimler,
+değerlendirmeler) kaydederek TEST verisinin ancak arama tamamen bittikten
+sonra yüklendiğini kanıtlar; ayrıca üretilen tüm dosyaları, devam etme
+(resume) davranışını ve imza değişince aramanın baştan koşmasını doğrular.
+Çevresindeki küçük testler bölme özetini, tabakalı limiti, grafik üretimini
+ve eski arama imzalarının geriye dönük uyumunu kapsar.
+'''
 
 import json
 from pathlib import Path
@@ -21,6 +30,8 @@ from ser.constants import CANONICAL_EMOTIONS
 
 
 def _fold(speakers: list[str]) -> pd.DataFrame:
+    # Verilen konuşmacı adlarından minik bir katman DataFrame'i kurar;
+    # bölme özeti testlerinde konuşmacı kümelerini kontrol etmek için.
     rows = []
     for index, speaker in enumerate(speakers):
         rows.append(
@@ -35,6 +46,8 @@ def _fold(speakers: list[str]) -> pd.DataFrame:
 
 
 def test_split_summary_reports_disjoint_speakers() -> None:
+    '''Ayrık konuşmacı kümelerinde özet, sayıları ve BOŞ kesişim listelerini raporlamalı.'''
+
     summary = _split_summary(
         _fold(['train-a', 'train-b']),
         _fold(['validation-a']),
@@ -51,6 +64,12 @@ def test_split_summary_reports_disjoint_speakers() -> None:
 
 
 def test_split_summary_rejects_speaker_leakage() -> None:
+    '''Aynı konuşmacı iki katmanda görünürse özet üretimi hemen hata vermeli.
+
+    Konuşmacı sızıntısı deneyi bütünüyle geçersiz kılar; sessiz devam etmek
+    kabul edilemez.
+    '''
+
     with pytest.raises(ValueError, match='Speaker leakage'):
         _split_summary(
             _fold(['shared']),
@@ -60,6 +79,12 @@ def test_split_summary_rejects_speaker_leakage() -> None:
 
 
 def test_diagnostic_limit_is_stratified_and_deterministic() -> None:
+    '''Tanısal limit hem TÜM sınıfları korumalı hem de aynı tohumla aynı alt kümeyi seçmeli.
+
+    60 satır (6 sınıf x 10), limit=18: sonuçta 18 satır olmalı, altı sınıfın
+    hepsi temsil edilmeli ve iki çağrının satır kimlikleri birebir aynı olmalı.
+    '''
+
     frame = pd.DataFrame(
         {
             'row_id': range(60),
@@ -76,6 +101,12 @@ def test_diagnostic_limit_is_stratified_and_deterministic() -> None:
 
 
 def test_reliability_plot_writes_nonempty_png(tmp_path: Path) -> None:
+    '''Güvenilirlik diyagramı gerçek bir PNG dosyası üretmeli (sihirli bayt + boyut kontrolü).
+
+    Girdi olarak gerçek kalibrasyon raporları kullanılır: aşırı özgüvenli
+    olasılıklar ve T=2 ile yumuşatılmış halleri.
+    '''
+
     labels = np.tile(np.arange(6), 2)
     probabilities = np.full((len(labels), 6), 0.04)
     probabilities[np.arange(len(labels)), labels] = 0.8
@@ -105,6 +136,14 @@ def test_reliability_plot_writes_nonempty_png(tmp_path: Path) -> None:
 
 
 def test_legacy_search_signature_defaults_to_crop_pad() -> None:
+    '''frame_strategy alanı olmayan ESKİ imza, crop_pad'li güncel imzaya eşit sayılmalı.
+
+    Geriye dönük uyum testi: eski arama durumları frame_strategy'siz
+    kaydedildi ama davranışları crop_pad ile aynıydı; normalizasyon bu
+    eşdeğerliği tanımalı. resize'lı imza ise eşit sayılMAmalı — gerçek fark
+    korunuyor.
+    '''
+
     legacy = {'feature_config': {'n_mels': 64, 'n_frames': 64}}
     current = {
         'feature_config': {
@@ -124,6 +163,8 @@ def test_legacy_search_signature_defaults_to_crop_pad() -> None:
 
 
 def _six_class_fold(prefix: str) -> pd.DataFrame:
+    # Her kanonik duygudan bir örnek içeren sahte katman; konuşmacı adları
+    # prefix'li olduğundan katmanlar arası çakışma olmaz.
     return pd.DataFrame(
         [
             {
@@ -138,6 +179,8 @@ def _six_class_fold(prefix: str) -> pd.DataFrame:
 
 
 def _metrics(score: float) -> dict:
+    # compute_metrics biçiminde, per_class dahil eksiksiz sahte metrik sözlüğü
+    # (pipeline sonucu per_class alanını da kullanır).
     return {
         'accuracy': score,
         'balanced_accuracy': score,
@@ -160,7 +203,27 @@ def test_test_fold_is_untouched_until_validation_search_finishes(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
+    '''Pipeline'ın ana sözleşme testi: olay sırası, çıktılar, resume ve imza geçersizleşmesi.
+
+    Kurulum: bölmeler, arama uzayı, öznitelik yükleme, eğitim ve değerlendirme
+    sahtelenir; her sahte fonksiyon events listesine iz bırakır. Sahte eğitim
+    skoru mimariye bağlıdır ((10,) mimarisi 0.7 ile kazanır) — böylece
+    refinement adayının seçilmesi beklenir.
+
+    Doğrulanan üç senaryo:
+    1. İlk koşu: olay sırası birebir beklendiği gibi olmalı — test yüklemesi
+       ('load:cremad test') ancak 5 eğitim VE doğrulama değerlendirmesi
+       bittikten sonra gelmeli. Tüm çıktı dosyaları (CSV/JSON/checkpoint/
+       güvenilirlik PNG'si) yazılmalı ve içerikleri dönen sonuçla eşleşmeli.
+    2. Aynı ayarlarla ikinci koşu (resume): hiç eğitim olmamalı; yalnızca
+       yükleme + değerlendirme + test tekrarlanmalı.
+    3. max_epochs değiştirilince imza uyuşmaz: 5 eğitimin tamamı yeniden
+       koşmalı (bayat durum kullanılmamalı).
+    '''
+
     events: list[str] = []
+    # Küçücük öznitelik uzayı (2x3=6 boyut): testin hızlı koşmasını sağlar ve
+    # 6 boyut, 6 sınıflı birim matris hilesiyle uyumludur.
     feature_config = MelSpecConfig(n_mels=2, n_frames=3)
     candidates = [
         MLPConfig(hidden_dims=(4,), batch_norm=False, dropout=0.0),
@@ -190,6 +253,8 @@ def test_test_fold_is_untouched_until_validation_search_finishes(
     )
 
     def fake_load(records, cache_dir, config, **kwargs):
+        # Hangi katmanın yüklendiğini description üzerinden events'e yaz;
+        # her örneğe kendi sınıfının one-hot vektörünü öznitelik olarak ver.
         description = kwargs['description']
         events.append(f'load:{description}')
         labels = records['label_idx'].to_numpy(dtype=np.int64)
@@ -205,7 +270,9 @@ def test_test_fold_is_untouched_until_validation_search_finishes(
         **kwargs,
     ):
         events.append('train')
+        # KRİTİK iddia: eğitim anında test verisi HENÜZ yüklenmemiş olmalı.
         assert not any(event.endswith('test') for event in events)
+        # Skor mimariden gelir: refinement adayı (10,) en yüksek skoru alır.
         score = {
             (4,): 0.4,
             (8,): 0.6,
@@ -238,6 +305,8 @@ def test_test_fold_is_untouched_until_validation_search_finishes(
         )
 
     def fake_evaluate(model, features, labels, **kwargs):
+        # Değerlendirmenin hangi katmanda olduğunu, test yüklemesinin gerçekleşip
+        # gerçekleşmediğinden çıkar; mükemmel (one-hot) olasılıklar döndür.
         fold = (
             'test'
             if any(event.endswith('test') for event in events)
@@ -265,6 +334,8 @@ def test_test_fold_is_untouched_until_validation_search_finishes(
             },
         },
     )
+    # Ağır grafik fonksiyonlarını kapat (güvenilirlik diyagramı hariç: onun
+    # gerçekten üretildiği ayrıca doğrulanıyor).
     monkeypatch.setattr(pipeline_module, '_plot_history', lambda *args, **kwargs: None)
     monkeypatch.setattr(pipeline_module, '_plot_confusion', lambda *args, **kwargs: None)
 
@@ -279,6 +350,8 @@ def test_test_fold_is_untouched_until_validation_search_finishes(
         feature_config=feature_config,
     )
 
+    # Beklenen olay sırası: 2 tarama + 1 iyileştirme + 2 kararlılık = 5 eğitim;
+    # test yüklemesi en sonda, doğrulama değerlendirmesinden sonra.
     assert events == [
         'load:cremad eğitim',
         'load:cremad geçerleme',
@@ -307,6 +380,7 @@ def test_test_fold_is_untouched_until_validation_search_finishes(
         'refinement': 1,
         'stability': 2,
     }
+    # Kararlılık özeti: kazanan konfig 3 tohumla (42, 143, 244) koşmuş olmalı.
     assert result['stability']['runs'] == 3
     assert result['stability']['seeds'] == [42, 143, 244]
     assert result['stability']['val_macro_f1_mean'] == pytest.approx(0.7)
@@ -317,6 +391,7 @@ def test_test_fold_is_untouched_until_validation_search_finishes(
         'lower': 0.7,
         'upper': 0.9,
     }
+    # Diske yazılan JSON'lar, dönen sonuçtaki sözlüklerle birebir aynı olmalı.
     uncertainty_path = Path(result['artifacts']['uncertainty'])
     assert uncertainty_path.is_file()
     with uncertainty_path.open(encoding='utf-8') as handle:
@@ -347,6 +422,8 @@ def test_test_fold_is_untouched_until_validation_search_finishes(
         saved_scaling = json.load(handle)
     assert saved_scaling == scaling
     assert Path(result['artifacts']['reliability_diagram']).is_file()
+    # Tahmin CSV'si: kalibrasyon sınıf kararlarını değiştirmemiş olmalı
+    # (ham ve kalibre olasılık sütunlarının argmax'ları aynı).
     predictions = pd.read_csv(result['artifacts']['predictions'])
     raw_columns = [f'prob_{emotion}' for emotion in CANONICAL_EMOTIONS]
     calibrated_columns = [
@@ -360,6 +437,8 @@ def test_test_fold_is_untouched_until_validation_search_finishes(
     checkpoint_path = tmp_path / 'outputs' / 'cremad' / 'best_model.pt'
     assert checkpoint_path.is_file()
 
+    # Checkpoint'in okuma tarafı: model çalışır halde geri gelmeli,
+    # standardizer boyutu ve üst veriler doğru olmalı.
     loaded_model, standardizer, checkpoint = pipeline_module.load_saved_model(
         checkpoint_path
     )
@@ -373,6 +452,8 @@ def test_test_fold_is_untouched_until_validation_search_finishes(
         scaling['fit']['temperature']
     )
 
+    # Senaryo 2 — resume: aynı ayarlarla tekrar koş; 'train' olayı hiç
+    # görülmemeli, sonuç aynı kazananı korumalı.
     events.clear()
     resumed_result = pipeline_module.run_corpus(
         'cremad',
@@ -394,6 +475,8 @@ def test_test_fold_is_untouched_until_validation_search_finishes(
     ]
     assert resumed_result['best_trial'] == 3
 
+    # Senaryo 3 — imza geçersizleşmesi: max_epochs değişti, kayıtlı durum
+    # artık uyumsuz; 5 eğitimin tamamı yeniden koşmalı.
     events.clear()
     pipeline_module.run_corpus(
         'cremad',
@@ -410,6 +493,12 @@ def test_test_fold_is_untouched_until_validation_search_finishes(
 
 
 def test_model_comparison_preserves_prior_rows_and_adds_mlp(tmp_path: Path) -> None:
+    '''Karşılaştırma tablosu önceki ödev satırlarını korumalı ve MLP satırını eklemeli.
+
+    Sıralama macro-F1'e göre: MLP (0.62) KNN'in (0.46) üstüne çıkmalı ve
+    birleşik CSV diske yazılmalı.
+    '''
+
     columns = [
         'corpus',
         'model',
@@ -458,6 +547,8 @@ def test_model_comparison_preserves_prior_rows_and_adds_mlp(tmp_path: Path) -> N
 
 
 def test_training_history_plot_is_written(tmp_path: Path) -> None:
+    '''Öğrenme eğrisi grafiği iki epoch'luk geçmişten boş olmayan bir dosya üretmeli.'''
+
     history = [
         {
             'epoch': 1,
@@ -483,6 +574,8 @@ def test_training_history_plot_is_written(tmp_path: Path) -> None:
 
 
 def test_confusion_matrix_plot_is_written(tmp_path: Path) -> None:
+    '''Karışıklık matrisi grafiği birim matristen boş olmayan bir dosya üretmeli.'''
+
     matrix = np.eye(6, dtype=int).tolist()
     output_path = tmp_path / 'confusion.png'
 

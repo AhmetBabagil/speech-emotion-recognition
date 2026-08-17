@@ -1,4 +1,11 @@
-'''Tests for the Assignment 3 command-line interface.'''
+'''Ödev 3 komut satırı arayüzünün testleri.
+
+run_experiment.py'nin saf yardımcı fonksiyonları sınanır: sonuç satırı
+biçimi, öznitelik konfigürasyonu kurulumu (ödevin 4000 boyut şartı dahil)
+ve korpus başına özel ayarların (override) doğru uygulanması. CLI'nin
+kendisini (argparse akışını) çalıştırmaya gerek yoktur; mantık bu
+fonksiyonlarda toplandığı için onları test etmek yeterlidir.
+'''
 
 import pytest
 
@@ -10,6 +17,8 @@ from odev3.run_experiment import (
 
 
 def test_result_line_formats_test_metrics() -> None:
+    '''Konsol özeti sabit biçimde olmalı: 4 ondalık basamak, "corpus: ..." kalıbı.'''
+
     result = {'test': {'accuracy': 0.61234, 'macro_f1': 0.54321}}
 
     line = _result_line('cremad', result)
@@ -18,6 +27,8 @@ def test_result_line_formats_test_metrics() -> None:
 
 
 def test_build_feature_config_supports_full_utterance_resizing() -> None:
+    '''96 kare + resize kombinasyonu geçerli olmalı ve 64*96=6144 boyut üretmeli.'''
+
     config = build_feature_config(96, 'resize')
 
     assert config.n_frames == 96
@@ -26,11 +37,19 @@ def test_build_feature_config_supports_full_utterance_resizing() -> None:
 
 
 def test_build_feature_config_enforces_assignment_minimum() -> None:
+    '''Ödevin 4000 boyut alt sınırını ihlal eden ayar (64*62=3968) reddedilmeli.'''
+
     with pytest.raises(ValueError, match='at least 4000'):
         build_feature_config(62, 'crop_pad')
 
 
 def test_build_feature_configs_applies_dataset_specific_overrides() -> None:
+    '''Korpus başına özel ayarlar varsayılanları alan alan ezmeli (None = varsayılanı kullan).
+
+    Kurgu: cremad yalnızca stratejiyi (resize), meld yalnızca kare sayısını
+    (96) değiştirir; değiştirmedikleri alanlar varsayılanda kalmalı.
+    '''
+
     configs = build_feature_configs(
         ('cremad', 'meld'),
         default_frames=64,

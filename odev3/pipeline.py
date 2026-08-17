@@ -1,4 +1,23 @@
-'''End-to-end validation search and held-out test evaluation for Assignment 3.'''
+'''Ödev 3 için uçtan uca doğrulama araması ve ayrılmış (held-out) test değerlendirmesi.
+
+Bu dosya projenin "orkestra şefi"dir: diğer modüllerdeki parçaları doğru
+sırayla ve doğru protokolle birbirine bağlar. Bir korpus için tam akış:
+
+1. Konuşmacı-bağımsız 70/15/15 bölmelerini kur (Ödev 1-2 ile aynı, seed=42).
+2. Eğitim + doğrulama özniteliklerini yükle, eğitim istatistikleriyle
+   standardize et (test verisi bu aşamada BİLEREK yüklenmez).
+3. Hiperparametre araması: tarama (screening) -> yerel iyileştirme
+   (refinement) -> çok tohumlu kararlılık (stability). Her deneme erken
+   durdurmayla eğitilir; en iyisi doğrulama macro-F1'e göre seçilir.
+4. Doğrulama olasılıklarıyla sıcaklık kalibrasyonu öğren.
+5. ANCAK ŞİMDİ test verisini yükle; seçilen modeli test üzerinde BİR KEZ
+   değerlendir (metrikler + bootstrap belirsizliği + kalibrasyon raporu).
+6. Tüm çıktıları (CSV, JSON, PNG, checkpoint) diske yaz.
+
+Ek olarak, uzun aramalar kesintiye dayanıklıdır: her denemeden sonra arama
+durumu (search_state.pt) atomik olarak kaydedilir ve uyumlu bir durumla
+yeniden başlatılınca kaldığı yerden devam edilir.
+'''
 
 from __future__ import annotations
 
@@ -36,12 +55,17 @@ from ser.data import prepare_splits
 from ser.utils import ensure_dir, get_device, get_logger, set_seed
 
 
+# Proje genelinde ortak günlükçü (logger) ve deneyin ana tohumu.
+# SEED=42 tüm ödevlerde aynıdır; böylece bölmeler ve sonuçlar karşılaştırılabilir.
 log = get_logger('odev3.mlp')
 SEED = 42
 CORPUS_DISPLAY_NAMES = {'cremad': 'CREMA-D', 'meld': 'MELD'}
 
 
 def _json_default(value: Any) -> Any:
+    # json.dumps'ın tanımadığı tipleri (numpy skalerleri, diziler, Path)
+    # düz Python karşılıklarına çeviren yardımcı. Bilinmeyen tiplerde
+    # TypeError fırlatmak json protokolünün beklediği davranıştır.
     if isinstance(value, (np.integer, np.floating, np.bool_)):
         return value.item()
     if isinstance(value, np.ndarray):
@@ -52,6 +76,9 @@ def _json_default(value: Any) -> Any:
 
 
 def _write_json(path: str | Path, payload: Any) -> None:
+    # JSON yazımını tek yerde standartlaştırır: klasörü oluştur, 2 boşluk
+    # girinti, Türkçe karakterleri kaçış dizisine çevirme (ensure_ascii=False),
+    # UTF-8 kodlama. Tüm .json çıktıları bu fonksiyondan geçer.
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -61,6 +88,9 @@ def _write_json(path: str | Path, payload: Any) -> None:
 
 
 def _manifest_identity(path: str | Path) -> dict[str, Any]:
+    # Manifest dosyasının kimliği: tam yol + boyut + değişiklik zamanı.
+    # Arama imzasına (aşağıda) girer; manifest değişirse kayıtlı arama durumu
+    # otomatik olarak geçersiz sayılır — bayat verilerle devam edilmez.
     manifest_path = Path(path)
     identity: dict[str, Any] = {'path': str(manifest_path.resolve())}
     if manifest_path.is_file():
@@ -80,6 +110,10 @@ def _search_signature(
     device: torch.device,
     amp: bool,
 ) -> dict[str, Any]:
+    # Arama "imzası": sonucu etkileyebilecek TÜM ayarların anlık görüntüsü.
+    # Devam etme (resume) mekanizması, diskteki search_state.pt yalnızca bu
+    # imzayla birebir eşleşiyorsa kullanılır; tek bir ayar bile değişmişse
+    # eski denemeler güvenilmez sayılıp arama baştan yapılır.
     return {
         'corpus': corpus,
         'manifest': _manifest_identity(manifest_path),
@@ -94,19 +128,31 @@ def _search_signature(
 
 
 def _config_json(config: MLPConfig) -> str:
+    # Konfigürasyonun kanonik (deterministik) JSON hali: anahtarlar sıralı,
+    # boşluk yok. Aynı ayarlar her zaman aynı metni üretir; kimlik ve anahtar
+    # üretiminin temelidir.
     return json.dumps(config.to_dict(), sort_keys=True, separators=(',', ':'))
 
 
 def _config_id(config: MLPConfig) -> str:
+    # Kanonik JSON'un SHA-1 özetinin ilk 12 karakteri: CSV'lerde insan
+    # tarafından okunabilir kısalıkta, pratikte çakışmayan bir konfig kimliği.
     return hashlib.sha1(_config_json(config).encode('utf-8')).hexdigest()[:12]
 
 
 def _trial_key(stage: str, config: MLPConfig, trial_seed: int) -> str:
+    # Bir denemenin benzersiz anahtarı: aşama + tohum + konfig. Aynı konfig
+    # farklı aşamada ya da farklı tohumla AYRI bir deneme sayılır (örn.
+    # stability aşamasında aynı konfig üç tohumla üç kez koşar).
     config_json = _config_json(config)
     return f'{stage}|{trial_seed}|{config_json}'
 
 
 def _serialize_best_bundle(bundle: dict[str, Any] | None) -> dict[str, Any] | None:
+    # "En iyi deneme paketi"ni diske yazılabilir hale getirir. Paket; skor
+    # satırını, konfigürasyonu, eğitim geçmişini, doğrulama metriklerini ve
+    # model ağırlıklarını içerir. MLPConfig nesnesi doğrudan pickle'lamak
+    # yerine sözlüğe çevrilir — sürüm uyumluluğu için daha güvenli.
     if bundle is None:
         return None
     return {
@@ -119,6 +165,8 @@ def _serialize_best_bundle(bundle: dict[str, Any] | None) -> dict[str, Any] | No
 
 
 def _restore_best_bundle(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    # _serialize_best_bundle'ın tersi: diskten okunan sözlüğü bellekteki
+    # biçime döndürür (config sözlüğü tekrar MLPConfig olur ve doğrulanır).
     if payload is None:
         return None
     return {
@@ -140,6 +188,10 @@ def _save_search_state(
     refinement_base: MLPConfig | None,
     stability_base: MLPConfig | None,
 ) -> None:
+    # Aramanın o anki tam durumunu diske yazar. schema_version, format
+    # değişirse eski dosyaların otomatik reddedilmesini sağlar. Kayıt önce
+    # geçici dosyaya yapılır, sonra os.replace ile atomik olarak taşınır:
+    # yazma sırasında elektrik kesilse bile diskte asla yarım durum kalmaz.
     payload = {
         'schema_version': 2,
         'signature': signature,
@@ -156,7 +208,15 @@ def _save_search_state(
 
 
 def _normalized_search_signature(signature: dict[str, Any]) -> dict[str, Any]:
-    '''Fill defaults added after older, behaviorally equivalent search states.'''
+    '''Davranışsal olarak eşdeğer eski arama durumları için sonradan eklenen varsayılanları doldurur.
+
+    Geriye dönük uyumluluk hilesi: frame_strategy alanı koda sonradan eklendi.
+    Ondan önce kaydedilmiş durumlar bu alanı içermez ama davranışları bugünkü
+    'crop_pad' varsayılanıyla aynıdır. İki imzayı karşılaştırmadan önce eksik
+    alanı varsayılanla doldurursak, eski ama geçerli durumlar boşuna
+    çöpe atılmaz. (json çevrimi ayrıca tip farklarını da normalize eder:
+    tuple/list, numpy/int gibi.)
+    '''
 
     normalized = json.loads(json.dumps(signature, default=_json_default))
     normalized.setdefault('feature_config', {}).setdefault(
@@ -170,9 +230,17 @@ def _load_search_state(
     path: Path,
     signature: dict[str, Any],
 ) -> dict[str, Any] | None:
+    # Kaydedilmiş arama durumunu okumaya çalışır; herhangi bir sorun varsa
+    # (dosya yok, okunamıyor, imza uyuşmuyor) None döndürür ve arama sıfırdan
+    # başlar. Yani devam mekanizması "en kötü ihtimalle baştan" ilkesiyle
+    # tamamen güvenli tasarlanmıştır — asla hatalı durumla devam edilmez.
     if not path.is_file():
         return None
     try:
+        # weights_only=True: pickle üzerinden rastgele kod çalıştırılmasını
+        # engelleyen güvenli yükleme (yeni PyTorch sürümleri). Eski sürümler
+        # bu parametreyi tanımaz ve TypeError verir; o zaman klasik yükleme
+        # kullanılır.
         try:
             payload = torch.load(path, map_location='cpu', weights_only=True)
         except TypeError:
@@ -180,6 +248,8 @@ def _load_search_state(
     except (OSError, RuntimeError, ValueError, TypeError, pickle.UnpicklingError) as error:
         log.warning('Ignoring unreadable search state %s: %s', path, error)
         return None
+    # İmza karşılaştırması normalize edilmiş halde yapılır (bkz. yukarıdaki
+    # fonksiyon): yalnızca gerçekten aynı deney tanımına ait durum kabul edilir.
     saved_signature = payload.get('signature', {})
     signatures_match = _normalized_search_signature(
         saved_signature
@@ -205,7 +275,16 @@ def _load_search_state(
 
 
 def _splits_for(corpus: str, manifest_path: str | Path):
-    '''Reuse the same seed-42 speaker-independent folds as Assignments 1 and 2.'''
+    '''Ödev 1 ve 2 ile birebir aynı, seed-42 konuşmacı-bağımsız bölmeleri yeniden kullanır.
+
+    İki kritik nokta:
+    - **Konuşmacı-bağımsız bölme**: Aynı konuşmacının kayıtları asla hem
+      eğitimde hem testte bulunmaz. Aksi halde model duyguyu değil KİŞİNİN
+      SESİNİ ezberleyerek şişirilmiş skorlar elde ederdi.
+    - **Ödevler arası tutarlılık**: Aynı manifest + aynı seed + aynı oranlar
+      (70/15/15) sayesinde Ödev 2'nin klasik modelleriyle bu MLP'nin test
+      skorları adil biçimde karşılaştırılabilir.
+    '''
 
     manifest = pd.read_csv(manifest_path)
     cfg = Config()
@@ -218,8 +297,17 @@ def _splits_for(corpus: str, manifest_path: str | Path):
 
 
 def _stratified_limit(frame: pd.DataFrame, limit: int | None, seed: int) -> pd.DataFrame:
-    '''Deterministically shrink a fold for diagnostics while retaining all classes.'''
+    '''Tanı (diagnostic) amaçlı bir katmanı, tüm sınıfları koruyarak deterministik küçültür.
 
+    Duman testlerinde (--limit-per-split) tüm veriyle çalışmak gereksiz yavaş
+    olur; ama rastgele N satır almak bir sınıfı tamamen dışarıda bırakabilir
+    ve eğitim çöker (sınıf ağırlıkları sıfır sayım kabul etmez). Bu yüzden
+    "tabakalı" küçültme yapılır: önce her sınıftan eşit pay alınır, kalan
+    kontenjan havuzdan rastgele doldurulur, sıra karıştırılır. Sabit tohum
+    sayesinde aynı limit her zaman aynı alt kümeyi üretir.
+    '''
+
+    # Limit yoksa ya da katman zaten limitin altındaysa dokunma (kopya döndür).
     if limit is None or limit >= len(frame):
         return frame.copy()
     if limit < NUM_CLASSES:
@@ -227,6 +315,7 @@ def _stratified_limit(frame: pd.DataFrame, limit: int | None, seed: int) -> pd.D
 
     rng = np.random.default_rng(seed)
     selected: list[int] = []
+    # Her sınıfın garanti payı: limit // sınıf_sayısı (en az 1).
     per_class = max(1, limit // NUM_CLASSES)
     for label in range(NUM_CLASSES):
         candidates = frame.index[frame['label_idx'] == label].to_numpy()
@@ -235,16 +324,23 @@ def _stratified_limit(frame: pd.DataFrame, limit: int | None, seed: int) -> pd.D
         take = min(per_class, len(candidates))
         selected.extend(rng.choice(candidates, size=take, replace=False).tolist())
 
+    # Bölme artığı yüzünden limit tam dolmadıysa kalan yerleri, henüz
+    # seçilmemiş satırlardan rastgele tamamla.
     remaining = limit - len(selected)
     if remaining > 0:
         pool = frame.index[~frame.index.isin(selected)].to_numpy()
         take = min(remaining, len(pool))
         selected.extend(rng.choice(pool, size=take, replace=False).tolist())
+    # Sınıf sınıf seçtiğimiz için liste sınıf bloklarına ayrılmış durumda;
+    # karıştırarak yapay sıralamayı bozuyoruz.
     rng.shuffle(selected)
     return frame.loc[selected].reset_index(drop=True)
 
 
 def _fold_details(frame: pd.DataFrame) -> dict[str, Any]:
+    # Tek bir katmanın (fold) özeti: kayıt sayısı, benzersiz konuşmacı sayısı
+    # ve sınıf başına örnek sayıları. Rapordaki "veri dağılımı" tabloları
+    # buradan beslenir.
     counts = frame['label_idx'].value_counts().to_dict()
     return {
         'records': int(len(frame)),
@@ -257,6 +353,10 @@ def _fold_details(frame: pd.DataFrame) -> dict[str, Any]:
 
 
 def _split_summary(train, validation, test) -> dict[str, Any]:
+    # Bölme özetini üretirken aynı zamanda EN ÖNEMLİ güvenlik kontrolünü
+    # yapar: üç katmanın konuşmacı kümeleri kesişiyor mu? Küme kesişimi
+    # (set &) boş olmalı; değilse "konuşmacı sızıntısı" vardır ve deney
+    # geçersizdir — devam etmek yerine hemen hata fırlatılır.
     speaker_sets = {
         'train': set(train['speaker'].astype(str)),
         'validation': set(validation['speaker'].astype(str)),
@@ -269,6 +369,8 @@ def _split_summary(train, validation, test) -> dict[str, Any]:
     }
     if any(overlaps.values()):
         raise ValueError(f'Speaker leakage detected: {overlaps}.')
+    # Boş kesişim listeleri de bilinçli olarak çıktıya yazılır: "sızıntı yok"
+    # iddiasının kanıtı raporda görünür olur.
     return {
         'protocol': 'speaker-independent 70/15/15, seed=42',
         'train': _fold_details(train),
@@ -279,11 +381,20 @@ def _split_summary(train, validation, test) -> dict[str, Any]:
 
 
 def _plot_confusion(matrix: list[list[int]], path: str | Path, title: str) -> None:
+    # Karışıklık (confusion) matrisini ısı haritası olarak çizer.
+    # matplotlib importları fonksiyon içinde: modül yüklenirken değil, ancak
+    # gerçekten grafik çizilecekse yüklensin (başlangıç süresi + bağımlılık).
     import matplotlib
 
+    # 'Agg' arka ucu ekransız ortamda PNG üretebilmek için; pyplot'tan önce
+    # seçilmek zorundadır.
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
 
+    # Ham sayımlar yerine SATIR-normalize oranlar gösterilir: her hücre
+    # "gerçek sınıfı X olanların yüzde kaçı Y tahmin edildi" anlamına gelir.
+    # Böylece sınıf boyutları farklı olsa da hücreler karşılaştırılabilir.
+    # np.divide'ın where parametresi boş satırlarda 0'a bölmeyi önler.
     matrix = np.asarray(matrix, dtype=np.float64)
     row_sums = matrix.sum(axis=1, keepdims=True)
     displayed = np.divide(
@@ -293,12 +404,15 @@ def _plot_confusion(matrix: list[list[int]], path: str | Path, title: str) -> No
         where=row_sums != 0,
     )
     fig, axis = plt.subplots(figsize=(7.0, 5.8))
+    # vmin/vmax sabit [0,1]: renk skalası tüm grafiklerde aynı anlama gelir.
     image = axis.imshow(displayed, cmap='Blues', vmin=0.0, vmax=1.0)
     axis.set_xticks(range(NUM_CLASSES), CANONICAL_EMOTIONS, rotation=45, ha='right')
     axis.set_yticks(range(NUM_CLASSES), CANONICAL_EMOTIONS)
     axis.set_xlabel('Tahmin edilen sınıf')
     axis.set_ylabel('Gerçek sınıf')
     axis.set_title(title)
+    # Her hücrenin üzerine oranı sayı olarak yaz; koyu hücrelerde beyaz,
+    # açık hücrelerde siyah yazı kullanarak okunabilirliği koru.
     for row in range(NUM_CLASSES):
         for column in range(NUM_CLASSES):
             value = displayed[row, column]
@@ -320,6 +434,10 @@ def _plot_confusion(matrix: list[list[int]], path: str | Path, title: str) -> No
 
 
 def _plot_history(history: list[dict[str, Any]], path: str | Path, title: str) -> None:
+    # Öğrenme eğrileri: solda kayıp, sağda macro-F1 (eğitim vs doğrulama).
+    # İki eğrinin makasının açılması (eğitim iyileşirken doğrulamanın
+    # kötüleşmesi) aşırı öğrenmenin klasik görüntüsüdür; erken durdurmanın
+    # neden gerektiği bu grafikte görülür.
     import matplotlib
 
     matplotlib.use('Agg')
@@ -360,12 +478,18 @@ def _plot_reliability(
     path: str | Path,
     title: str,
 ) -> None:
+    # Güvenilirlik diyagramı: solda "ortalama güven vs gerçek doğruluk"
+    # eğrisi (45 derecelik kesikli çizgi = mükemmel kalibrasyon), sağda güven
+    # dağılımı histogramı. Ham ve sıcaklık-ölçekli sonuçlar yan yana çizilir;
+    # kalibrasyonun etkisi tek bakışta görülür.
     import matplotlib
 
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
 
     def nonempty_series(report: dict[str, Any]) -> tuple[list[float], list[float]]:
+        # Boş dilimlerin (count=0) güven/doğruluk değeri None'dır; eğriye
+        # dahil edilemezler, süzülüp atlanır.
         entries = [entry for entry in report['bins'] if entry['count'] > 0]
         return (
             [float(entry['mean_confidence']) for entry in entries],
@@ -429,6 +553,10 @@ def _validation_row(
     outcome,
     elapsed_seconds: float,
 ) -> dict[str, Any]:
+    # Tek bir denemenin validation_results.csv'ye yazılacak "düz" satırı.
+    # Konfigürasyonun her alanı ayrı sütuna açılır ki CSV'de filtrelemek ve
+    # hiperparametre etkisi analizinde gruplamak kolay olsun. hidden_dims
+    # tuple'ı '512-256' biçiminde metne çevrilir (CSV hücresinde liste olmaz).
     metrics = outcome.validation_metrics
     return {
         'trial': trial_id,
@@ -458,6 +586,10 @@ def _validation_row(
 
 
 def _selection_key(row: dict[str, Any]) -> tuple[float, float, float]:
+    # "En iyi deneme" seçiminin sıralama anahtarı. Python tuple'ları eleman
+    # eleman karşılaştırır: önce macro-F1, eşitse dengeli doğruluk, o da
+    # eşitse DÜŞÜK doğrulama kaybı (eksi işaretiyle "büyük olan kazanır"
+    # kuralına çevrilir). Tamamen deterministik bir seçim kuralıdır.
     return (
         float(row['val_macro_f1']),
         float(row['val_balanced_accuracy']),
@@ -466,6 +598,8 @@ def _selection_key(row: dict[str, Any]) -> tuple[float, float, float]:
 
 
 def _feature_method(config: MelSpecConfig) -> str:
+    # Öznitelik boru hattının insan tarafından okunabilir tek satırlık özeti;
+    # result.json'a ve rapora "yöntem" alanı olarak yazılır.
     return (
         'librosa.feature.melspectrogram -> log dB -> '
         f'{config.n_mels}x{config.n_frames} -> '
@@ -489,16 +623,30 @@ def run_corpus(
     limit_per_split: int | None = None,
     resume: bool = True,
 ) -> dict[str, Any]:
-    '''Search on validation data, then evaluate the selected model once on test.'''
+    '''Doğrulama verisinde arama yapar, seçilen modeli test üzerinde BİR KEZ değerlendirir.
 
+    Bu fonksiyon tek bir korpusun tüm deneyini uçtan uca yürütür. Altın
+    kural: test kümesi model seçiminin hiçbir aşamasında kullanılmaz; ancak
+    kazanan kesinleştikten sonra, tek bir değerlendirme için yüklenir. Bu
+    disiplin sayesinde raporlanan test skoru gerçek bir "genelleme" ölçüsüdür,
+    seçim sürecinin yan ürünü değildir.
+    '''
+
+    # ------------------------------------------------------------------
+    # 1) Kurulum: tohum, klasörler ve veri bölmeleri.
+    # ------------------------------------------------------------------
     set_seed(SEED)
     corpus_dir = ensure_dir(Path(output_root) / corpus)
     history_dir = ensure_dir(corpus_dir / 'histories')
     cache_dir = Path(cache_root) / corpus
     train_frame, validation_frame, test_frame = _splits_for(corpus, manifest_path)
+    # Tanı modunda katmanları küçült; her katmana FARKLI tohum verilir ki
+    # alt kümeler birbirinden bağımsız örneklensin.
     train_frame = _stratified_limit(train_frame, limit_per_split, SEED)
     validation_frame = _stratified_limit(validation_frame, limit_per_split, SEED + 1)
     test_frame = _stratified_limit(test_frame, limit_per_split, SEED + 2)
+    # Bölme özeti hem konuşmacı sızıntısını denetler hem de kanıt olarak
+    # diske yazılır.
     split_summary = _split_summary(train_frame, validation_frame, test_frame)
     _write_json(corpus_dir / 'split_summary.json', split_summary)
     log.info(
@@ -510,8 +658,11 @@ def run_corpus(
         grid_mode,
     )
 
-    # Test features and labels are intentionally not loaded until the complete
-    # validation search has selected one candidate.
+    # ------------------------------------------------------------------
+    # 2) Öznitelikler: yalnızca eğitim + doğrulama.
+    # Test öznitelikleri ve etiketleri, doğrulama araması tek bir aday
+    # seçene kadar BİLEREK yüklenmez — protokolün temel taşı budur.
+    # ------------------------------------------------------------------
     train_features, train_labels = load_feature_matrix(
         train_frame,
         cache_dir,
@@ -526,11 +677,17 @@ def run_corpus(
         workers=feature_workers,
         description=f'{corpus} geçerleme',
     )
+    # z-score parametreleri SADECE eğitim verisinden öğrenilir; doğrulama
+    # yalnızca dönüştürülür (veri sızıntısını önleme). Sınıf ağırlıkları da
+    # eğitim dağılımından hesaplanır.
     standardizer = FeatureStandardizer.fit(train_features)
     train_features = standardizer.transform(train_features)
     validation_features = standardizer.transform(validation_features)
     class_weights = inverse_frequency_weights(train_labels, NUM_CLASSES)
 
+    # ------------------------------------------------------------------
+    # 3) Arama durumu: imzayı kur, varsa uyumlu kayıtlı durumu geri yükle.
+    # ------------------------------------------------------------------
     screening_candidates = search_space(grid_mode)
     state_path = corpus_dir / 'search_state.pt'
     signature = _search_signature(
@@ -545,6 +702,8 @@ def run_corpus(
     )
     saved_state = _load_search_state(state_path, signature) if resume else None
     if saved_state:
+        # Uyumlu kayıt bulundu: tamamlanmış denemeler, en iyi paket ve aşama
+        # tabanları (refinement/stability başlangıç konfigleri) geri gelir.
         rows: list[dict[str, Any]] = saved_state['rows']
         completed_keys: set[str] = saved_state['completed_keys']
         best_bundle: dict[str, Any] | None = saved_state['best_bundle']
@@ -552,6 +711,7 @@ def run_corpus(
         stability_base: MLPConfig | None = saved_state['stability_base']
         log.info('[%s] resuming %d completed validation trials', corpus, len(rows))
     else:
+        # Temiz başlangıç: hiç deneme yok, en iyi henüz belirsiz.
         rows = []
         completed_keys = set()
         best_bundle = None
@@ -559,14 +719,24 @@ def run_corpus(
         stability_base = None
     stage_counts: dict[str, int] = {}
 
+    # ------------------------------------------------------------------
+    # 4) Arama motoru: run_stage, bir aday listesini sırayla eğitir.
+    # İç fonksiyon (closure) olarak tanımlanır çünkü öznitelik matrisleri,
+    # rows, completed_keys gibi ortak duruma doğrudan erişmesi gerekir;
+    # bunları parametre olarak taşımak imzayı gereksiz şişirirdi.
+    # ------------------------------------------------------------------
     def run_stage(
         stage: str,
         candidates: list[MLPConfig],
         trial_seed: int = SEED,
     ) -> None:
+        # nonlocal: best_bundle dış kapsamda yaşar; iç fonksiyon onu
+        # yeniden atayabilsin diye bildirilir (okumak için gerekmezdi).
         nonlocal best_bundle
         stage_counts[stage] = stage_counts.get(stage, 0) + len(candidates)
         for stage_index, candidate in enumerate(candidates, start=1):
+            # Deneme anahtarı (aşama|tohum|konfig) daha önce tamamlanmışsa
+            # eğitimi atla — devam etme mekanizmasının çekirdeği.
             key = _trial_key(stage, candidate, trial_seed)
             if key in completed_keys:
                 log.info(
@@ -577,6 +747,8 @@ def run_corpus(
                     len(candidates),
                 )
                 continue
+            # Global deneme numarası: aşamalardan bağımsız, 1'den itibaren
+            # artan tek bir sayaç (CSV'de benzersiz kimlik görevi görür).
             trial_id = len(rows) + 1
             log.info(
                 '[%s] %s trial %d/%d | global trial %d | %s',
@@ -612,6 +784,8 @@ def run_corpus(
                 elapsed,
             )
             rows.append(row)
+            # Her denemenin epoch-epoch geçmişi ayrı CSV'ye; tüm satırların
+            # o anki hali de partial CSV'ye yazılır (izleme + güvenlik ağı).
             pd.DataFrame(outcome.history).to_csv(
                 history_dir / f'trial_{trial_id:03d}.csv', index=False
             )
@@ -626,6 +800,10 @@ def run_corpus(
                 row['val_macro_f1'],
             )
 
+            # Yeni deneme, mevcut en iyiden daha iyiyse (bkz. _selection_key)
+            # "en iyi paket" güncellenir: skor satırı, konfig, geçmiş ve
+            # model ağırlıklarının CPU kopyası saklanır. Ağırlıkları hemen
+            # saklamak gerekir; sıradaki deneme aynı GPU belleğini kullanacak.
             if best_bundle is None or _selection_key(row) > _selection_key(
                 best_bundle['row']
             ):
@@ -639,6 +817,8 @@ def run_corpus(
                         for name, value in outcome.model.state_dict().items()
                     },
                 }
+            # Denemeyi tamamlandı olarak işaretle ve arama durumunu HEMEN
+            # diske yaz: bu satırdan sonra kesinti olsa bile deneme kayıpsız.
             completed_keys.add(key)
             _save_search_state(
                 state_path,
@@ -649,10 +829,18 @@ def run_corpus(
                 refinement_base=refinement_base,
                 stability_base=stability_base,
             )
+            # Model/geçmiş referanslarını bırak ve CUDA önbelleğini boşalt:
+            # onlarca deneme art arda koşarken GPU belleği birikmesin.
             del outcome
             if device.type == 'cuda':
                 torch.cuda.empty_cache()
 
+    # ------------------------------------------------------------------
+    # 5) Arama planı. 'report' modunda üç aşama koşar:
+    #    screening (ızgara) -> refinement (kazananın komşuları) ->
+    #    stability (kazananı 2 ek tohumla tekrar eğit).
+    #    Diğer modlarda tek aşama vardır ve adıyla anılır (quick/full).
+    # ------------------------------------------------------------------
     initial_stage = 'screening' if grid_mode == 'report' else grid_mode
     run_stage(initial_stage, screening_candidates)
 
@@ -660,6 +848,10 @@ def run_corpus(
     if grid_mode == 'report':
         if best_bundle is None:
             raise RuntimeError(f'Screening produced no valid trial for {corpus}.')
+        # refinement_base bir kez sabitlenir ve duruma kaydedilir. Neden?
+        # Devam eden bir çalıştırmada screening'in kazananı değişmiş olsa
+        # bile refinement HEP aynı taban etrafında üretilmeli; yoksa yarıda
+        # kalan aşama farklı aday listesiyle devam eder ve anahtarlar şaşardı.
         if refinement_base is None:
             refinement_base = best_bundle['config']
             _save_search_state(
@@ -671,6 +863,8 @@ def run_corpus(
                 refinement_base=refinement_base,
                 stability_base=stability_base,
             )
+        # Screening'de zaten denenen adaylar refinement listesinden çıkarılır
+        # (exclude) — aynı konfigi iki kez eğitmek zaman kaybı olurdu.
         refinement_candidates = refinement_space(
             refinement_base,
             exclude=screening_candidates,
@@ -678,6 +872,8 @@ def run_corpus(
         run_stage('refinement', refinement_candidates)
         if best_bundle is None:
             raise RuntimeError(f'Refinement produced no valid trial for {corpus}.')
+        # stability_base da aynı nedenle bir kez sabitlenir: iki aşamanın
+        # genel kazananı, farklı tohumlarla tekrar eğitilecek konfigdir.
         if stability_base is None:
             stability_base = best_bundle['config']
             _save_search_state(
@@ -689,12 +885,18 @@ def run_corpus(
                 refinement_base=refinement_base,
                 stability_base=stability_base,
             )
+        # Kararlılık aşaması: aynı konfig, iki FARKLI tohum (ana tohum SEED
+        # ile zaten eğitildi). Skorların tohumdan tohuma ne kadar oynadığı,
+        # sonucun şansa ne kadar bağlı olduğunu gösterir.
         run_stage('stability', [stability_base], trial_seed=SEED + 101)
         run_stage('stability', [stability_base], trial_seed=SEED + 202)
 
     if best_bundle is None:
         raise RuntimeError(f'No successful validation trial for {corpus}.')
 
+    # ------------------------------------------------------------------
+    # 6) Arama bitti: sonuç tablosunu sırala, kazananı işaretle ve yaz.
+    # ------------------------------------------------------------------
     ranked = pd.DataFrame(rows).sort_values(
         ['val_macro_f1', 'val_balanced_accuracy', 'val_loss'],
         ascending=[False, False, True],
@@ -703,11 +905,18 @@ def run_corpus(
     ranked['selected'] = ranked['trial'] == int(best_bundle['row']['trial'])
     ranked.to_csv(corpus_dir / 'validation_results.csv', index=False)
 
+    # Kazanan modeli, saklanan ağırlıklardan yeniden kur. (Aramadaki model
+    # nesneleri bellekten atıldı; elimizde yalnızca state_dict kopyası var.)
     best_config: MLPConfig = best_bundle['config']
     model = MLP(feature_config.vector_size, NUM_CLASSES, best_config)
     model.load_state_dict(best_bundle['state_dict'])
     model.to(device)
 
+    # ------------------------------------------------------------------
+    # 7) Kalibrasyon: sıcaklık, DOĞRULAMA olasılıkları üzerinde öğrenilir.
+    # Testten önce öğrenilmesi şart — kalibrasyon da bir "model seçimi"dir
+    # ve test verisine bakamaz.
+    # ------------------------------------------------------------------
     _, _, validation_probabilities = evaluate_arrays(
         model,
         validation_features,
@@ -722,7 +931,11 @@ def run_corpus(
         validation_labels,
     )
 
-    # This is the first point at which held-out test records are loaded or used.
+    # ------------------------------------------------------------------
+    # 8) TEST: ayrılmış test kayıtlarının yüklendiği/kullanıldığı İLK nokta
+    # burasıdır. Model ve kalibrasyon çoktan kesinleşti; test artık yalnızca
+    # tarafsız bir ölçüm.
+    # ------------------------------------------------------------------
     test_features, test_labels = load_feature_matrix(
         test_frame,
         cache_dir,
@@ -742,6 +955,8 @@ def run_corpus(
     )
     predictions = probabilities.argmax(axis=1)
     confidences = probabilities.max(axis=1)
+    # Test metriklerinin belirsizliği: tabakalı bootstrap ile %95 güven
+    # aralıkları (bkz. odev3/uncertainty.py).
     test_uncertainty = bootstrap_metric_intervals(
         test_labels,
         predictions,
@@ -749,11 +964,14 @@ def run_corpus(
         confidence=0.95,
         seed=SEED,
     )
+    # Ham (kalibre edilmemiş) test olasılıklarının kalibrasyon raporu.
     test_calibration = classification_calibration_report(
         probabilities,
         test_labels,
         bins=10,
     )
+    # Doğrulamada öğrenilen sıcaklığı hem doğrulama hem test olasılıklarına
+    # uygula; öncesi/sonrası raporları yan yana kaydedilecek.
     temperature = float(temperature_fit['temperature'])
     calibrated_validation_probabilities = temperature_scale_probabilities(
         validation_probabilities,
@@ -763,9 +981,14 @@ def run_corpus(
         probabilities,
         temperature,
     )
+    # Güvenlik doğrulaması: sıcaklık ölçekleme tanımı gereği argmax'ı
+    # değiştiremez. Değiştirdiyse kodda ciddi bir hata var demektir; sessizce
+    # devam etmek yerine çök.
     calibrated_predictions = calibrated_probabilities.argmax(axis=1)
     if not np.array_equal(calibrated_predictions, predictions):
         raise RuntimeError('Temperature scaling changed predicted class indices.')
+    # Kalibrasyonun tam hikayesi: öğrenme detayları + doğrulama ve test için
+    # öncesi/sonrası raporlar. Rapor bu sözlükten tablo üretir.
     temperature_scaling = {
         'fit': temperature_fit,
         'validation': {
@@ -791,6 +1014,11 @@ def run_corpus(
         'class_predictions_preserved': True,
     }
 
+    # ------------------------------------------------------------------
+    # 9) Örnek bazında tahmin dökümü: her test kaydı için gerçek/tahmin
+    # etiketi, güven ve tüm sınıf olasılıkları (ham + kalibre). Hata analizi
+    # ("model en çok neyi neyle karıştırıyor?") bu CSV üzerinden yapılır.
+    # ------------------------------------------------------------------
     prediction_frame = test_frame[
         ['path', 'speaker', 'emotion', 'label_idx']
     ].reset_index(drop=True).copy()
@@ -813,6 +1041,13 @@ def run_corpus(
     temperature_scaling_path = corpus_dir / 'temperature_scaling.json'
     _write_json(temperature_scaling_path, temperature_scaling)
 
+    # ------------------------------------------------------------------
+    # 10) Teslim edilebilir checkpoint: modeli daha sonra TEK dosyadan
+    # eksiksiz kurabilmek için gereken HER ŞEY buraya yazılır — ağırlıklar,
+    # mimari konfigi, öznitelik ayarları, standardizasyon parametreleri,
+    # sınıf ağırlıkları ve kalibrasyon sıcaklığı. (load_saved_model bu
+    # dosyayı okur.)
+    # ------------------------------------------------------------------
     checkpoint = {
         'schema_version': 2,
         'assignment': 3,
@@ -838,6 +1073,10 @@ def run_corpus(
     }
     torch.save(checkpoint, corpus_dir / 'best_model.pt')
 
+    # ------------------------------------------------------------------
+    # 11) Görseller: en iyi modelin öğrenme eğrileri, test karışıklık
+    # matrisi ve kalibrasyon güvenilirlik diyagramı.
+    # ------------------------------------------------------------------
     history_path = corpus_dir / 'best_training_history.csv'
     pd.DataFrame(best_bundle['history']).to_csv(history_path, index=False)
     _plot_history(
@@ -858,6 +1097,12 @@ def run_corpus(
         f'{CORPUS_DISPLAY_NAMES.get(corpus, corpus.upper())} - test olasılık kalibrasyonu',
     )
 
+    # ------------------------------------------------------------------
+    # 12) Kararlılık özeti: kazanan konfigürasyonun tüm tohumlardaki
+    # skorlarını (ana arama tohumu + iki stability tohumu) ortalama/std/
+    # min/max olarak toparlar. config_id ile eşleştirme yapılır çünkü aynı
+    # konfig birden çok aşamada satır üretmiş olabilir.
+    # ------------------------------------------------------------------
     stability_summary = None
     if grid_mode == 'report' and stability_base is not None:
         stability_id = _config_id(stability_base)
@@ -887,6 +1132,12 @@ def run_corpus(
             ),
         }
 
+    # ------------------------------------------------------------------
+    # 13) Nihai sonuç sözlüğü: deneyin TÜM hikayesi tek yerde — protokol,
+    # veri, kazanan model, doğrulama/test metrikleri, belirsizlik,
+    # kalibrasyon ve üretilen dosyaların yolları. result.json'a yazılır ve
+    # rapor üretimi ile testler bu dosyayı okur.
+    # ------------------------------------------------------------------
     result = {
         'corpus': corpus,
         'manifest': str(manifest_path),
@@ -972,6 +1223,10 @@ def _write_model_comparison(
     prior_results_path: str | Path,
     output_root: str | Path,
 ) -> pd.DataFrame:
+    # Ödevler arası karşılaştırma tablosu: Ödev 2'nin test sonuçları CSV'si
+    # okunur (varsa), MLP'nin satırları eklenir ve korpus içi macro-F1'e göre
+    # sıralanmış tek bir model_comparison.csv üretilir. Böylece raporda
+    # "MLP klasik modellere göre nerede duruyor?" sorusu tek tablodan okunur.
     output_root = ensure_dir(output_root)
     columns = [
         'corpus',
@@ -984,6 +1239,8 @@ def _write_model_comparison(
         'test_macro_f1',
         'test_weighted_f1',
     ]
+    # Önceki ödevin dosyası yoksa (örn. duman testi ortamı) boş bir çerçeveyle
+    # başlanır; tablo yalnızca MLP satırlarını içerir.
     prior_path = Path(prior_results_path)
     if prior_path.is_file():
         comparison = pd.read_csv(prior_path)
@@ -1034,8 +1291,17 @@ def run_all(
     feature_config: MelSpecConfig = DEFAULT_CONFIG,
     feature_configs: dict[str, MelSpecConfig] | None = None,
 ) -> dict[str, dict[str, Any]]:
-    '''Run independent searches for every requested dataset.'''
+    '''İstenen her veri kümesi için BAĞIMSIZ aramalar çalıştırır.
 
+    "Bağımsız" vurgusu önemli: CREMA-D ve MELD ayrı deneylerdir — ayrı
+    bölmeler, ayrı arama, ayrı kazanan model. Bir kümenin sonucu diğerini
+    hiçbir şekilde etkilemez. Bu fonksiyon ayrıca korpus başına farklı
+    öznitelik ayarına izin verir (feature_configs sözlüğü genel
+    feature_config'i ezer) ve sonunda karşılaştırma tablosu + genel
+    summary.json üretir.
+    '''
+
+    # --- Girdi doğrulamaları ve ortak kurulum ---
     manifest_path = Path(manifest_path)
     if not manifest_path.is_file():
         raise FileNotFoundError(f'Manifest not found: {manifest_path}.')
@@ -1044,6 +1310,8 @@ def run_all(
     output_root = ensure_dir(output_root)
     device = get_device(device_name)
     feature_config.validate()
+    # Korpus başına öznitelik ayarı: özel ayar verilmişse onu, verilmemişse
+    # genel varsayılanı kullan; hepsini tek tek doğrula.
     selected_feature_configs = {
         corpus: (feature_configs or {}).get(corpus, feature_config)
         for corpus in corpora
@@ -1069,6 +1337,9 @@ def run_all(
             resume=resume,
         )
 
+    # Karşılaştırma tablosu + tüm çalıştırmanın üst düzey özeti. Özete torch
+    # ve CUDA sürümleri de yazılır: sonuçların hangi ortamda üretildiği
+    # tekrarlanabilirlik açısından belgelenmiş olur.
     comparison = _write_model_comparison(results, prior_results_path, output_root)
     summary = {
         'assignment': 3,
@@ -1098,9 +1369,18 @@ def load_saved_model(
     checkpoint_path: str | Path,
     device_name: str = 'cpu',
 ) -> tuple[MLP, FeatureStandardizer, dict[str, Any]]:
-    '''Load a delivered model and its training-only normalization parameters.'''
+    '''Teslim edilen bir modeli ve yalnızca-eğitimle öğrenilmiş normalizasyon parametrelerini yükler.
+
+    best_model.pt checkpoint'inin okuma tarafı: mimariyi konfigürasyondan
+    yeniden kurar, ağırlıkları yükler ve modeli değerlendirme moduna (eval)
+    alır. Standardizer da checkpoint'ten geri gelir — yeni bir ses dosyasını
+    sınıflandırmak için eğitimdeki DÖNÜŞÜMÜN AYNISI uygulanmak zorundadır;
+    yoksa model bambaşka ölçekte girdi görür ve saçmalar.
+    '''
 
     device = get_device(device_name)
+    # weights_only=True güvenli yükleme; eski PyTorch bu parametreyi
+    # tanımıyorsa (TypeError) klasik yüklemeye düş.
     try:
         checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=True)
     except TypeError:
@@ -1108,6 +1388,8 @@ def load_saved_model(
     config = MLPConfig.from_dict(checkpoint['model_config'])
     model = MLP(checkpoint['input_dim'], checkpoint['num_classes'], config)
     model.load_state_dict(checkpoint['model_state_dict'])
+    # eval(): dropout kapanır, BatchNorm çalışma istatistiklerini kullanır —
+    # çıkarım (inference) için doğru mod.
     model.to(device).eval()
     standardizer = FeatureStandardizer(
         mean=checkpoint['standardizer_mean'].cpu().numpy(),

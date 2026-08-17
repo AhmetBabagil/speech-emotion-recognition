@@ -1,4 +1,10 @@
-'''Tests for the configurable from-scratch PyTorch MLP.'''
+'''Yapılandırılabilir, sıfırdan yazılmış PyTorch MLP'nin testleri.
+
+Bu dosya model.py'nin sözleşmesini doğrular: doğru çıktı şekli, parametre
+sayısı, konfigürasyonun kayıpsız gidiş-dönüşü (round-trip), tüm aktivasyon
+seçeneklerinin çalışması, mimari anahtarlarının gerçekten katman
+ekleyip/çıkarması ve geçersiz girdilerin reddedilmesi.
+'''
 
 import pytest
 import torch
@@ -8,6 +14,13 @@ from odev3.model import MLP, MLPConfig, count_parameters
 
 
 def test_mlp_forward_shape_and_parameter_count() -> None:
+    '''İleri geçiş (batch, sınıf) şeklinde çıktı vermeli; parametre sayısı elle doğrulanmalı.
+
+    Beklenen parametre sayısı katman katman elle hesaplanır: her Linear için
+    (giriş x çıkış ağırlık) + (çıkış bias). Bu, count_parameters'ın ve katman
+    kurulumunun aynı anda doğrulanmasını sağlar.
+    '''
+
     config = MLPConfig(
         hidden_dims=(8, 4),
         batch_norm=False,
@@ -18,11 +31,19 @@ def test_mlp_forward_shape_and_parameter_count() -> None:
     logits = model(torch.zeros(3, 16))
 
     assert logits.shape == (3, 6)
+    # 16->8, 8->4, 4->6 katmanlarının ağırlık+bias toplamı.
     expected_parameters = (16 * 8 + 8) + (8 * 4 + 4) + (4 * 6 + 6)
     assert count_parameters(model) == expected_parameters
 
 
 def test_model_config_round_trip_preserves_hyperparameters() -> None:
+    '''to_dict -> from_dict dönüşümü konfigürasyonu birebir korumalı.
+
+    Bu özellik kritik: arama durumu ve checkpoint'ler konfigürasyonu JSON
+    olarak saklar. Dönüşümde tek bir alan bile bozulsaydı, diskten geri
+    yüklenen deneyler farklı bir modelle devam ederdi.
+    '''
+
     original = MLPConfig(
         batch_size=32,
         learning_rate=1e-3,
@@ -41,6 +62,8 @@ def test_model_config_round_trip_preserves_hyperparameters() -> None:
 
 @pytest.mark.parametrize('activation', ['relu', 'gelu', 'tanh', 'leaky_relu'])
 def test_supported_activations_produce_finite_logits(activation: str) -> None:
+    '''Desteklenen dört aktivasyonun tamamı sonlu (NaN/inf olmayan) logit üretmeli.'''
+
     config = MLPConfig(
         hidden_dims=(12,),
         activation=activation,
@@ -55,6 +78,12 @@ def test_supported_activations_produce_finite_logits(activation: str) -> None:
 
 
 def test_batch_normalization_and_dropout_switches_change_architecture() -> None:
+    '''batch_norm/dropout anahtarları katman dizilimini GERÇEKTEN değiştirmeli.
+
+    Anahtar açıkken ilgili katmanlar modülde bulunmalı, kapalıyken hiç
+    eklenmemeli — "ayar var ama etkisiz" durumunu yakalayan test.
+    '''
+
     regularized = MLP(
         10,
         6,
@@ -81,6 +110,12 @@ def test_batch_normalization_and_dropout_switches_change_architecture() -> None:
     ],
 )
 def test_config_rejects_non_finite_optimization_values(config: MLPConfig) -> None:
+    '''NaN/sonsuz öğrenme oranı ve weight decay değerleri doğrulamada reddedilmeli.
+
+    NaN karşılaştırmaları Python'da sessizce False döndüğü için bu değerler
+    özel isfinite kontrolü olmadan sızabilirdi; test bu korumayı kilitler.
+    '''
+
     with pytest.raises(ValueError):
         config.validate()
 
@@ -90,6 +125,8 @@ def test_config_rejects_non_finite_optimization_values(config: MLPConfig) -> Non
     [torch.zeros(16), torch.zeros(2, 15)],
 )
 def test_forward_rejects_wrong_input_shape(features: torch.Tensor) -> None:
+    '''Yanlış şekilli girdi (1-D vektör ya da yanlış boyut) açık hata mesajıyla reddedilmeli.'''
+
     model = MLP(
         input_dim=16,
         num_classes=6,

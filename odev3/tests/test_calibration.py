@@ -1,4 +1,12 @@
-'''Tests for multiclass probability calibration metrics.'''
+'''Çok sınıflı olasılık kalibrasyonu metriklerinin testleri.
+
+calibration.py'nin her fonksiyonu iki yönden sınanır:
+- **Matematik**: NLL, Brier ve ECE değerleri elle hesaplanan küçük örneklerle
+  karşılaştırılır; formül hatası anında yakalanır.
+- **Sözleşme**: Sıcaklık ölçekleme argmax'ı korumalı, geçersiz girdiler
+  (yanlış boyut, NaN, olasılık olmayan değerler, bool sıcaklık) her zaman
+  ValueError ile reddedilmeli, raporlar JSON'a kayıpsız çevrilebilmeli.
+'''
 
 import json
 
@@ -19,6 +27,13 @@ from odev3.calibration import (
 
 
 def test_validate_probability_matrix_does_not_require_labels() -> None:
+    '''Matris doğrulaması etiketten bağımsız çalışmalı ve float64'e yükseltmeli.
+
+    Birim matris (her satır tek sınıfa 1.0 verir) geçerli bir olasılık
+    matrisidir; doğrulama onu değiştirmeden, yalnızca tip yükselterek
+    döndürmelidir.
+    '''
+
     probabilities = np.eye(6, dtype=np.float32)
 
     probability_array = validate_probability_matrix(probabilities)
@@ -28,6 +43,13 @@ def test_validate_probability_matrix_does_not_require_labels() -> None:
 
 
 def test_temperature_scaling_controls_confidence_and_preserves_argmax() -> None:
+    '''T=1 kimlik, T>1 yumuşatma, T<1 keskinleştirme olmalı; argmax hep korunmalı.
+
+    Sıcaklık ölçeklemenin tanımlayıcı üç özelliği aynı testte: satır
+    toplamları 1 kalmalı, tahmin edilen sınıf değişmemeli, en yüksek
+    olasılık T=2'de düşmeli ve T=0.5'te yükselmeli.
+    '''
+
     probabilities = np.array(
         [
             [0.8, 0.04, 0.04, 0.04, 0.04, 0.04],
@@ -58,6 +80,12 @@ def test_temperature_scaling_controls_confidence_and_preserves_argmax() -> None:
 def test_temperature_scaling_rejects_invalid_temperature(
     temperature: object,
 ) -> None:
+    '''Sıfır, negatif, NaN, sonsuz, bool ve metin sıcaklıkların tümü reddedilmeli.
+
+    True özellikle sinsi bir durum: float(True)=1.0 sessizce geçebilirdi;
+    kod bool'u bilinçli olarak ayrıca kontrol eder.
+    '''
+
     with pytest.raises(ValueError, match='positive finite'):
         temperature_scale_probabilities(
             np.eye(6),
@@ -66,8 +94,17 @@ def test_temperature_scaling_rejects_invalid_temperature(
 
 
 def test_fit_temperature_reduces_nll_for_overconfident_predictions() -> None:
+    '''Aşırı özgüvenli (%95 emin ama yarısı yanlış) modelde T>1 öğrenilmeli ve NLL düşmeli.
+
+    Kurgu: tahminlerin yarısı kasten yanlışlanır ama olasılıklar hep 0.95
+    verir — klasik aşırı özgüven. Doğru davranış: arama 1'den büyük bir
+    sıcaklık bulur, NLL iyileşir, iyileşme bağımsız NLL hesabıyla tutarlıdır
+    ve ortalama güven düşer. Sonuç sözlüğü ayrıca JSON'a kayıpsız çevrilebilmeli.
+    '''
+
     predicted = np.arange(24) % 6
     labels = predicted.copy()
+    # Her ikinci örneğin gerçek etiketini kaydır: modelin yarısı yanlış olsun.
     labels[1::2] = (labels[1::2] + 1) % 6
     probabilities = np.full((len(labels), 6), 0.01)
     probabilities[np.arange(len(labels)), predicted] = 0.95
@@ -88,6 +125,12 @@ def test_fit_temperature_reduces_nll_for_overconfident_predictions() -> None:
 
 
 def test_fit_temperature_prefers_one_when_all_candidates_tie() -> None:
+    '''Tekdüze (uniform) olasılıklarda tüm sıcaklıklar aynı NLL'i verir; T=1 seçilmeli.
+
+    Beraberlik bozma kuralının testi: eşit kayıplarda 1.0'a en yakın aday
+    kazanır ("en az müdahale" ilkesi) ve iyileşme sıfır raporlanır.
+    '''
+
     probabilities = np.full((12, 6), 1.0 / 6.0)
     labels = np.tile(np.arange(6), 2)
 
@@ -100,6 +143,9 @@ def test_fit_temperature_prefers_one_when_all_candidates_tie() -> None:
 @pytest.mark.parametrize(
     'kwargs',
     [
+        # Sırasıyla: minimum=0 (pozitif değil), minimum=1 (1'i dışlar),
+        # maximum=1 (1'i dışlar), sonsuz maksimum, çok az kaba adım,
+        # bool adım sayısı.
         {'minimum': 0.0},
         {'minimum': 1.0},
         {'maximum': 1.0},
@@ -111,6 +157,8 @@ def test_fit_temperature_prefers_one_when_all_candidates_tie() -> None:
 def test_fit_temperature_rejects_invalid_search_settings(
     kwargs: dict[str, object],
 ) -> None:
+    '''Geçersiz arama ayarları (aralık 1'i içermiyor, adım sayısı yetersiz/bool) reddedilmeli.'''
+
     with pytest.raises(ValueError):
         fit_temperature(
             np.eye(6),
@@ -120,6 +168,8 @@ def test_fit_temperature_rejects_invalid_search_settings(
 
 
 def test_validate_probability_inputs_returns_aligned_arrays() -> None:
+    '''Olasılık+etiket doğrulaması tipleri normalize etmeli (float64, int64), değerleri korumalı.'''
+
     probabilities = np.eye(6, dtype=np.float32)
     labels = np.arange(6, dtype=np.int32)
 
@@ -137,6 +187,9 @@ def test_validate_probability_inputs_returns_aligned_arrays() -> None:
 @pytest.mark.parametrize(
     ('probabilities', 'labels'),
     [
+        # Sırasıyla: boş matris, 5 sütun (6 gerekli), uzunluk uyumsuzluğu,
+        # 2-D etiket, float etiket, NaN olasılık, negatif olasılık,
+        # satır toplamı 1 olmayan matris, aralık dışı etiket (6).
         (np.array([]), np.array([], dtype=np.int64)),
         (np.ones((2, 5)) / 5.0, np.array([0, 1])),
         (np.ones((2, 6)) / 6.0, np.array([0])),
@@ -160,11 +213,19 @@ def test_validate_probability_inputs_rejects_invalid_data(
     probabilities: np.ndarray,
     labels: np.ndarray,
 ) -> None:
+    '''"Olasılık gibi görünen ama olmayan" her girdi biçimi ValueError ile reddedilmeli.'''
+
     with pytest.raises(ValueError):
         validate_probability_inputs(probabilities, labels)
 
 
 def test_negative_log_likelihood_matches_manual_mean() -> None:
+    '''NLL, elle hesaplanan -(log p1 + log p2)/2 değerine eşit olmalı.
+
+    Doğru sınıf olasılıkları 0.8 ve 0.5; formül başka hiçbir şeyi hesaba
+    katmamalı (yalnızca doğru sınıfın olasılığı önemlidir).
+    '''
+
     probabilities = np.array(
         [
             [0.8, 0.04, 0.04, 0.04, 0.04, 0.04],
@@ -179,6 +240,13 @@ def test_negative_log_likelihood_matches_manual_mean() -> None:
 
 
 def test_negative_log_likelihood_handles_zero_true_probability() -> None:
+    '''Doğru sınıfa tam 0 olasılık verilse bile NLL sonlu kalmalı (taban kırpması).
+
+    Kırpma olmasaydı log(0) = -inf olur ve tüm ortalama sonsuza giderdi.
+    Sonuç sonlu ama ÇOK büyük (>20) olmalı — hata cezasız kalmıyor, sadece
+    sayısal olarak yönetiliyor.
+    '''
+
     probabilities = np.array(
         [[0.0, 0.2, 0.2, 0.2, 0.2, 0.2]]
     )
@@ -193,6 +261,8 @@ def test_negative_log_likelihood_handles_zero_true_probability() -> None:
 
 
 def test_brier_score_is_zero_for_perfect_probabilities() -> None:
+    '''Mükemmel one-hot tahminlerde Brier skoru tam 0 olmalı (alt sınır).'''
+
     probabilities = np.eye(6, dtype=np.float64)
     labels = np.arange(6, dtype=np.int64)
 
@@ -202,6 +272,12 @@ def test_brier_score_is_zero_for_perfect_probabilities() -> None:
 
 
 def test_brier_score_matches_uniform_six_class_baseline() -> None:
+    '''Tekdüze 1/6 tahminlerde Brier skoru analitik değere (5/6) eşit olmalı.
+
+    El hesabı: doğru sınıf için (1/6 - 1)^2 + beş yanlış sınıf için (1/6)^2
+    = 25/36 + 5/36 = 30/36 = 5/6. "Hiçbir şey bilmeyen" modelin taban çizgisi.
+    '''
+
     probabilities = np.full((6, 6), 1.0 / 6.0)
     labels = np.arange(6, dtype=np.int64)
 
@@ -211,6 +287,14 @@ def test_brier_score_matches_uniform_six_class_baseline() -> None:
 
 
 def test_confidence_bins_account_for_boundaries_and_empty_bins() -> None:
+    '''Dilim ataması sınır değerlerini tutarlı işlemeli; boş dilimler None kalmalı.
+
+    5 dilim, 4 örnek: güvenler 0.2, 0.4, 0.8 ve 1.0. Beklenen sayımlar
+    [0, 1, 1, 0, 2] — 0.2 ve 0.4 sınır değerleri sol dilime (side='right'
+    kuralı), 0.8 ve 1.0 son dilime düşer. Boş dilimin ortalama güveni None
+    olmalı (0.0 ile karışmamalı).
+    '''
+
     probabilities = np.array(
         [
             [0.2, 0.16, 0.16, 0.16, 0.16, 0.16],
@@ -237,6 +321,8 @@ def test_confidence_bins_account_for_boundaries_and_empty_bins() -> None:
 
 @pytest.mark.parametrize('bins', [1, 2.5, True])
 def test_confidence_bins_reject_invalid_bin_counts(bins: object) -> None:
+    '''Dilim sayısı en az 2 olan gerçek bir tamsayı olmalı; 1, 2.5 ve True reddedilmeli.'''
+
     with pytest.raises(ValueError):
         confidence_bin_statistics(
             np.eye(6),
@@ -246,6 +332,8 @@ def test_confidence_bins_reject_invalid_bin_counts(bins: object) -> None:
 
 
 def test_expected_calibration_error_is_zero_for_perfect_predictions() -> None:
+    '''Güven=doğruluk=1.0 olan mükemmel tahminlerde ECE tam 0 olmalı.'''
+
     error = expected_calibration_error(
         np.eye(6),
         np.arange(6),
@@ -256,6 +344,12 @@ def test_expected_calibration_error_is_zero_for_perfect_predictions() -> None:
 
 
 def test_expected_calibration_error_matches_weighted_bin_gaps() -> None:
+    '''ECE, dolu dilimlerin oran-ağırlıklı |doğruluk - güven| toplamına eşit olmalı.
+
+    El hesabı (önceki dilim testiyle aynı veri): dilim2 -> 0.25*|1-0.2|=0.2,
+    dilim3 -> 0.25*|0-0.4|=0.1, dilim5 -> 0.5*|1-0.9|=0.05; toplam 0.35.
+    '''
+
     probabilities = np.array(
         [
             [0.2, 0.16, 0.16, 0.16, 0.16, 0.16],
@@ -275,6 +369,8 @@ def test_expected_calibration_error_matches_weighted_bin_gaps() -> None:
 
 
 def test_calibration_report_is_zero_error_for_perfect_predictions() -> None:
+    '''Mükemmel tahminlerde raporun TÜM hata metrikleri 0, doğruluk ve güven 1 olmalı.'''
+
     report = classification_calibration_report(
         np.eye(6),
         np.arange(6),
@@ -294,6 +390,13 @@ def test_calibration_report_is_zero_error_for_perfect_predictions() -> None:
 
 
 def test_calibration_report_matches_metrics_and_is_json_serializable() -> None:
+    '''Çatı rapor, tek tek metrik fonksiyonlarıyla tutarlı ve JSON'a kayıpsız çevrilebilir olmalı.
+
+    İç tutarlılık testi: raporun içindeki NLL/Brier/ECE, aynı veriye ayrı
+    ayrı uygulanan fonksiyonların sonuçlarına eşit olmalı. JSON gidiş-dönüşü
+    de raporun diske sorunsuz yazılabileceğini garanti eder.
+    '''
+
     probabilities = np.array(
         [
             [0.6, 0.08, 0.08, 0.08, 0.08, 0.08],

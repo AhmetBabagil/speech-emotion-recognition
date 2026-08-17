@@ -1,4 +1,17 @@
-'''Validation-only multi-seed confirmation of selected Mel representations.'''
+'''Seçilen Mel temsillerinin, yalnızca doğrulama üzerinde çok tohumlu (multi-seed) teyidi.
+
+Neden bu deney var? Ablasyon çalışması (feature_ablation.py) her adayı TEK
+tohumla eğitti. Tek tohumluk bir fark, gerçek bir üstünlük değil "şans"
+olabilir: ağırlık başlangıcı ve batch sırası değişince skor da oynar. Bu
+modül, her korpusun en iyi iki adayını (ana temsil + en güçlü rakibi) ÜÇ
+farklı tohumla yeniden eğitir ve şu soruya cevap arar: "Ablasyonun kazananı,
+rastgelelik hesaba katıldığında da hâlâ kazanıyor mu?"
+
+Protokol yine sıkıdır: test sesleri hiç yüklenmez (validation-only), model
+konfigürasyonu sabittir, ve tohumlar iki aday için birebir aynıdır — böylece
+karşılaştırma "eşleştirilmiş" (paired) olur ve tohum şansı iki tarafı da
+eşit etkiler.
+'''
 
 from __future__ import annotations
 
@@ -22,15 +35,27 @@ from ser.constants import NUM_CLASSES
 from ser.utils import ensure_dir, get_device
 
 
+# Çıktı satırlarına yazılan protokol sürümü: format değişirse eski partial
+# CSV'ler otomatik olarak "eski" sayılır ve yeniden üretilir.
 PROTOCOL_VERSION = 1
+# Teyit tohumları: üç sabit, birbirinden uzak değer. Üç tekrar, ortalama ve
+# standart sapma hesaplamak için (maliyeti patlatmadan) makul bir alt sınırdır.
 CONFIRMATION_SEEDS = (42, 143, 244)
+# Grafik başlıklarında kullanılan gösterim adları.
 CORPUS_DISPLAY_NAMES = {'cremad': 'CREMA-D', 'meld': 'MELD'}
 
 
 def confirmation_candidates(
     corpus: str,
 ) -> tuple[tuple[str, MelSpecConfig], ...]:
-    '''Return the main representation and its strongest single-seed challenger.'''
+    '''Ana temsili ve onun en güçlü tek tohumlu rakibini döndürür.
+
+    Adlandırma bilinçli: 'main_*' ablasyonun tek tohumlu kazananı,
+    'challenger_*' ise ikinci gelen aday. paired_candidate_comparison bu
+    öneklere ('main_' / 'challenger_') dayanarak iki tarafı ayırt eder.
+    Adaylar korpusa göre farklıdır çünkü ablasyon her korpusta farklı bir
+    kazanan çıkarmıştır.
+    '''
 
     candidates = {
         'cremad': (
@@ -54,6 +79,9 @@ def confirmation_candidates(
 
 
 def _normalized_model_config(payload: Any) -> str | None:
+    # Model konfigürasyonunu kanonik JSON metnine indirger (bkz.
+    # feature_ablation._normalized_model_config): CSV'den okunan string ile
+    # bellekteki sözlük aynı biçimde karşılaştırılabilsin diye.
     try:
         data = json.loads(payload) if isinstance(payload, str) else payload
         return json.dumps(data, sort_keys=True, separators=(',', ':'))
@@ -66,6 +94,10 @@ def _completed_keys(
     max_epochs: int,
     model_config: MLPConfig,
 ) -> set[tuple[str, int]]:
+    # Devam etme (resume) anahtarları: bu deneyde bir "iş birimi"
+    # (öznitelik parmak izi, tohum) çiftidir — aynı aday üç tohumla üç ayrı
+    # iş sayılır. Yalnızca protokol sürümü, epoch limiti ve model ayarı
+    # birebir uyuşan satırlar tamamlanmış kabul edilir.
     expected_model = _normalized_model_config(model_config.to_dict())
     return {
         (str(row['feature_fingerprint']), int(row['seed']))
@@ -77,6 +109,7 @@ def _completed_keys(
 
 
 def _load_partial(path: Path) -> list[dict[str, Any]]:
+    # Yarıda kalmış çalıştırmanın ara CSV'sini oku; yoksa boş listeyle başla.
     if not path.is_file():
         return []
     return pd.read_csv(path).to_dict(orient='records')
@@ -90,6 +123,10 @@ def _matching_rows(
     candidates: tuple[tuple[str, MelSpecConfig], ...],
     seeds: tuple[int, ...],
 ) -> list[dict[str, Any]]:
+    # Ara CSV'den yalnızca ŞU ANKİ deney tanımıyla uyumlu satırları süzer:
+    # doğru protokol sürümü, epoch limiti, model, aday (isim+parmak izi) ve
+    # tohum kümesi. Eski/uyumsuz satırlar sessizce elenir; böylece farklı
+    # ayarlarla üretilmiş sonuçlar analizlere asla karışmaz.
     expected_model = _normalized_model_config(model_config.to_dict())
     candidate_keys = {
         (name, config.fingerprint) for name, config in candidates
@@ -110,8 +147,15 @@ def _matching_rows(
 def aggregate_stability_rows(
     rows: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    '''Rank feature candidates by mean validation macro-F1 across seeds.'''
+    '''Öznitelik adaylarını, tohumlar arası ortalama doğrulama macro-F1'e göre sıralar.
 
+    Her (korpus, aday) grubunun üç tohumdaki skorlarını ortalama, std,
+    min ve max ile özetler. std burada kilit metrik: küçük std "temsil
+    rastgeleliğe dayanıklı", büyük std "sonuç tohuma bağlı, güvenme" demektir.
+    '''
+
+    # Satırları aday kimliğine göre grupla. Anahtar, adayı benzersiz
+    # tanımlayan tüm alanları içerir; böylece farklı adaylar asla karışmaz.
     groups: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
     for row in rows:
         key = (
@@ -127,6 +171,7 @@ def aggregate_stability_rows(
 
     aggregates = []
     for key, candidate_rows in groups.items():
+        # Her metrik için tohum skorlarını float64 dizilerine topla.
         macro_f1 = np.asarray(
             [row['val_macro_f1'] for row in candidate_rows],
             dtype=np.float64,
@@ -158,6 +203,8 @@ def aggregate_stability_rows(
                     for seed in sorted({int(row['seed']) for row in candidate_rows})
                 ),
                 'val_macro_f1_mean': float(macro_f1.mean()),
+                # ddof=0: popülasyon std'si — üç tohum "örneklem" değil,
+                # deneyin tamamı olarak özetlenir.
                 'val_macro_f1_std': float(macro_f1.std(ddof=0)),
                 'val_macro_f1_min': float(macro_f1.min()),
                 'val_macro_f1_max': float(macro_f1.max()),
@@ -171,6 +218,8 @@ def aggregate_stability_rows(
             }
         )
 
+    # Sıralama: korpus içinde ortalama macro-F1 azalan; eşitlikte önce düşük
+    # std (daha kararlı olan), sonra düşük ortalama kayıp kazanır.
     aggregates.sort(
         key=lambda row: (
             str(row['corpus']),
@@ -179,6 +228,7 @@ def aggregate_stability_rows(
             float(row['val_loss_mean']),
         )
     )
+    # Sıra numarası her korpus için 1'den başlar (korpuslar bağımsız yarışır).
     ranks: dict[str, int] = {}
     for row in aggregates:
         corpus = str(row['corpus'])
@@ -188,8 +238,18 @@ def aggregate_stability_rows(
 
 
 def paired_candidate_comparison(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    '''Compare main and challenger scores on the exact same seed set.'''
+    '''Ana aday ile rakibin skorlarını BİREBİR AYNI tohum kümesi üzerinde karşılaştırır.
 
+    Eşleştirilmiş (paired) karşılaştırmanın gücü: iki adayı ortalamalar
+    yerine tohum tohum kıyaslarız. "Seed 42'de kim kazandı? Seed 143'te?"
+    Tohum kaynaklı gürültü her iki adayı da aynı anda etkilediği için,
+    tohum başına fark, ortalama farkından çok daha güvenilir bir sinyaldir.
+    Çıktıda kazanma sayıları (main_wins / challenger_wins / ties) ve
+    ortalama fark raporlanır.
+    '''
+
+    # Aday adlarını öneklerine göre ayır ve tam olarak 1'er tane olduğunu
+    # doğrula — ikiden fazla aday bu ikili karşılaştırmayı anlamsız kılardı.
     candidates = {str(row['candidate']) for row in rows}
     main_candidates = {
         candidate for candidate in candidates if candidate.startswith('main_')
@@ -205,6 +265,8 @@ def paired_candidate_comparison(rows: list[dict[str, Any]]) -> dict[str, Any]:
     challenger_candidate = challenger_candidates.pop()
 
     def scores_for(candidate: str) -> dict[int, float]:
+        # Adayın {tohum: skor} sözlüğünü kurar; aynı tohum iki kez
+        # geçiyorsa veri bozuk demektir, hata ver.
         candidate_rows = [row for row in rows if row['candidate'] == candidate]
         scores = {
             int(row['seed']): float(row['val_macro_f1'])
@@ -216,6 +278,7 @@ def paired_candidate_comparison(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
     main_scores = scores_for(main_candidate)
     challenger_scores = scores_for(challenger_candidate)
+    # Eşleştirme ancak tohum kümeleri birebir aynıysa geçerlidir.
     if set(main_scores) != set(challenger_scores):
         raise ValueError('main and challenger must use identical seed sets.')
 
@@ -225,6 +288,8 @@ def paired_candidate_comparison(rows: list[dict[str, Any]]) -> dict[str, Any]:
     ties = 0
     for seed in sorted(main_scores):
         difference = main_scores[seed] - challenger_scores[seed]
+        # Fark makine hassasiyeti kadar küçükse beraberlik say; işaret
+        # gürültüsüne "kazandı" dememek için.
         if np.isclose(difference, 0.0, rtol=0.0, atol=1e-12):
             winner = 'tie'
             ties += 1
@@ -258,6 +323,8 @@ def paired_candidate_comparison(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def reference_model(corpus: str) -> MLPConfig:
+    # Ablasyonla aynı sabit referans modeli döndürür (tek doğruluk kaynağı
+    # feature_ablation.REFERENCE_MODELS); bilinmeyen korpus adını erken yakalar.
     if corpus not in REFERENCE_MODELS:
         raise ValueError(f'Unsupported corpus: {corpus!r}.')
     return REFERENCE_MODELS[corpus]
@@ -269,8 +336,13 @@ def _plot_stability(
     path: str | Path,
     title: str,
 ) -> None:
+    # Kararlılık grafiği: her aday için ortalama +- std hata çubuğu (elmas
+    # işaretli) ve üzerine tekil tohum skorları (siyah noktalar). Böylece hem
+    # özet istatistik hem ham veri aynı görselde okunur.
     import matplotlib
 
+    # 'Agg' arka ucu: ekransız (headless) ortamda da PNG üretebilmek için;
+    # pyplot importundan ÖNCE seçilmesi gerekir.
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
 
@@ -278,6 +350,7 @@ def _plot_stability(
     positions = np.arange(len(ordered), dtype=np.float64)
     means = [float(row['val_macro_f1_mean']) for row in ordered]
     errors = [float(row['val_macro_f1_std']) for row in ordered]
+    # X ekseni etiketi: "96×64\ncrop-pad" gibi iki satırlık kompakt kimlik.
     labels = [
         (
             f'{int(row["n_mels"])}×{int(row["n_frames"])}\n'
@@ -291,6 +364,8 @@ def _plot_stability(
     for index, (position, aggregate) in enumerate(
         zip(positions, ordered, strict=True)
     ):
+        # Ortalama +- std hata çubuğu. Legend etiketi yalnızca ilk adaya
+        # verilir; yoksa aynı açıklama iki kez listelenirdi.
         axis.errorbar(
             position,
             means[index],
@@ -309,6 +384,8 @@ def _plot_stability(
             row for row in rows if row['candidate'] == aggregate['candidate']
         ]
         candidate_rows.sort(key=lambda row: int(row['seed']))
+        # Tekil tohum noktalarını yatayda hafifçe kaydır (jitter): üst üste
+        # binip birbirini gizlemesinler.
         offsets = np.linspace(-0.12, 0.12, len(candidate_rows))
         scores = [float(row['val_macro_f1']) for row in candidate_rows]
         axis.scatter(
@@ -319,6 +396,7 @@ def _plot_stability(
             zorder=4,
             label='Tekil seed sonucu' if index == 0 else None,
         )
+        # Ortalama değeri hata çubuğunun tepesine sayı olarak yaz.
         axis.text(
             position,
             means[index] + errors[index] + 0.006,
@@ -328,6 +406,8 @@ def _plot_stability(
             fontsize=10,
         )
 
+    # Y sınırlarını veriye göre ayarla (alt 0, üst 1 ile sınırlı): farklar
+    # görünür olsun ama eksen olasılık aralığından taşmasın.
     all_scores = [float(row['val_macro_f1']) for row in rows]
     lower = max(0.0, min(all_scores) - 0.035)
     upper = min(1.0, max(all_scores) + 0.045)
@@ -341,6 +421,8 @@ def _plot_stability(
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=160)
+    # Figürü kapatmak bellek sızıntısını önler (matplotlib figürleri açık
+    # kaldıkça birikir).
     plt.close(fig)
 
 
@@ -348,6 +430,9 @@ def _persist_corpus_rows(
     rows: list[dict[str, Any]],
     corpus_dir: Path,
 ) -> list[dict[str, Any]]:
+    # Mevcut satırların TAMAMINI diske yazar: hem devam-etme dosyası
+    # (partial) hem nihai koşu tablosu, hem özet CSV hem grafik. Her deneme
+    # sonrasında çağrılır; böylece diskteki durum her an tutarlı ve günceldir.
     ordered = pd.DataFrame(rows).sort_values(['candidate', 'seed'])
     ordered.to_csv(corpus_dir / 'feature_stability.partial.csv', index=False)
     ordered.to_csv(corpus_dir / 'feature_stability_runs.csv', index=False)
@@ -378,21 +463,33 @@ def run_corpus_stability(
     feature_workers: int = 1,
     loader_workers: int = 0,
 ) -> dict[str, Any]:
-    '''Train two fixed feature candidates across seeds without loading test audio.'''
+    '''İki sabit öznitelik adayını, test sesi yüklemeden tohumlar arasında eğitir.
 
+    Döngü yapısı bilinçli olarak "önce aday, sonra tohum" şeklindedir:
+    bir adayın öznitelik matrisi BİR KEZ yüklenip standardize edilir, sonra
+    üç tohumla art arda eğitim yapılır. Ters sırada (önce tohum) her tohum
+    için öznitelikler yeniden yüklenirdi — boşuna disk/CPU maliyeti.
+    '''
+
+    # --- Girdi doğrulamaları ---
     model_config = reference_model(corpus)
     if max_epochs <= 0:
         raise ValueError(f'max_epochs must be positive, got {max_epochs}.')
+    # Tohumlar benzersiz ve negatif olmayan olmalı; kopya tohum aynı deneyi
+    # iki kez sayar, negatif tohum ise RNG'ler için geçersizdir.
     if not seeds or len(set(seeds)) != len(seeds) or any(seed < 0 for seed in seeds):
         raise ValueError('seeds must contain unique non-negative integers.')
     if feature_workers < 1 or loader_workers < 0:
         raise ValueError('Worker counts must be feature>=1 and loader>=0.')
 
+    # --- Kurulum: cihaz, klasörler, devam durumu, veri bölmeleri ---
     device = get_device(device_name)
     corpus_dir = ensure_dir(Path(output_root) / corpus)
     history_dir = ensure_dir(corpus_dir / 'histories')
     partial_path = corpus_dir / 'feature_stability.partial.csv'
     candidates = confirmation_candidates(corpus)
+    # Ara dosyadan yalnızca bu deney tanımına uyan satırları al; kalanları
+    # tamamlanmış işler kümesine çevir.
     rows = _matching_rows(
         _load_partial(partial_path),
         max_epochs=max_epochs,
@@ -401,6 +498,8 @@ def run_corpus_stability(
         seeds=seeds,
     )
     completed = _completed_keys(rows, max_epochs, model_config)
+    # Test bölmesi bilerek kullanılmadan bırakılır (_held_out_test_frame):
+    # bu deney yalnızca eğitim + doğrulama görür.
     train_frame, validation_frame, _held_out_test_frame = _splits_for(
         corpus,
         manifest_path,
@@ -409,6 +508,8 @@ def run_corpus_stability(
     trial = 0
 
     for candidate_name, feature_config in candidates:
+        # Bu adayın TÜM tohumları zaten bittiyse öznitelikleri hiç yükleme;
+        # sadece bilgi satırlarını bas ve sıradaki adaya geç.
         if all(
             (feature_config.fingerprint, seed) in completed
             for seed in seeds
@@ -421,6 +522,7 @@ def run_corpus_stability(
                 )
             continue
 
+        # Adayın öznitelikleri tohum döngüsünün DIŞINDA bir kez yüklenir.
         cache_dir = Path(cache_root) / corpus
         train_features, train_labels = load_feature_matrix(
             train_frame,
@@ -436,6 +538,7 @@ def run_corpus_stability(
             workers=feature_workers,
             description=f'{corpus} stability validation {candidate_name}',
         )
+        # Standardizasyon yine yalnızca eğitim istatistikleriyle (sızıntı yok).
         standardizer = FeatureStandardizer.fit(train_features)
         train_features = standardizer.transform(train_features)
         validation_features = standardizer.transform(validation_features)
@@ -443,6 +546,8 @@ def run_corpus_stability(
         for seed in seeds:
             trial += 1
             key = (feature_config.fingerprint, seed)
+            # Tek tek tohum bazında da atlama yapılabilir (adayın bir kısmı
+            # önceki çalıştırmada bitmiş olabilir).
             if key in completed:
                 print(
                     f'{corpus}: stability trial {trial}/{total_trials} already '
@@ -455,6 +560,8 @@ def run_corpus_stability(
                 f'({candidate_name}, seed={seed})'
             )
             started = time.perf_counter()
+            # Aynı veriler, aynı model, FARKLI tohum: skorlar arasındaki tüm
+            # fark yalnızca rastgelelikten (init + batch sırası) gelir.
             outcome = train_with_early_stopping(
                 train_features,
                 train_labels,
@@ -471,6 +578,7 @@ def run_corpus_stability(
             )
             elapsed = time.perf_counter() - started
             metrics = outcome.validation_metrics
+            # Sonuç satırı: deneme kimliği + protokol kanıtları + skorlar.
             row = {
                 'protocol_version': PROTOCOL_VERSION,
                 'corpus': corpus,
@@ -500,11 +608,14 @@ def run_corpus_stability(
             }
             rows.append(row)
             completed.add(key)
+            # Epoch-epoch eğitim geçmişi ayrı dosyaya (öğrenme eğrileri için).
             pd.DataFrame(outcome.history).to_csv(
                 history_dir
                 / f'{candidate_name}_seed_{seed}_{feature_config.fingerprint}.csv',
                 index=False,
             )
+            # Her denemeden sonra tüm çıktıları güncelle: kesinti olursa
+            # hiçbir tamamlanmış sonuç kaybolmaz.
             _persist_corpus_rows(rows, corpus_dir)
             print(
                 f'{corpus}: {candidate_name} seed={seed} validation '
@@ -512,8 +623,11 @@ def run_corpus_stability(
             )
             del outcome
 
+        # Adayın büyük matrislerini bırak: sıradaki adayın yüklemesi
+        # sırasında bellek iki katına çıkmasın.
         del train_features, validation_features
 
+    # Son kez topla ve eşleştirilmiş karşılaştırmayı JSON olarak yaz.
     aggregates = _persist_corpus_rows(rows, corpus_dir)
     comparison = paired_candidate_comparison(rows)
     (corpus_dir / 'feature_stability_comparison.json').write_text(
@@ -533,6 +647,9 @@ def run_corpus_stability(
 
 
 def _json_default(value: Any) -> Any:
+    # json.dumps numpy skalerlerini ve Path nesnelerini seri hale getiremez;
+    # bu geri çağırma (default hook) onları düz Python tiplerine çevirir.
+    # Tanınmayan tipler için TypeError fırlatmak json sözleşmesinin gereğidir.
     if isinstance(value, (np.integer, np.floating, np.bool_)):
         return value.item()
     if isinstance(value, Path):
@@ -552,6 +669,10 @@ def run_feature_stability(
     feature_workers: int = 1,
     loader_workers: int = 0,
 ) -> dict[str, dict[str, Any]]:
+    # Tüm korpuslar için kararlılık deneyini çalıştıran ve tek bir
+    # summary.json'da toplayan çatı fonksiyon. Özet, deneyin tam tanımını
+    # (protokol, seçim kuralı, tohumlar, modeller, adaylar) içerir — rapor
+    # yazarken tek başvuru kaynağı budur.
     results = {
         corpus: run_corpus_stability(
             corpus,
@@ -603,6 +724,7 @@ def run_feature_stability(
 
 
 def main() -> None:
+    # Bağımsız CLI: kararlılık deneyi ablasyondan ayrı çalıştırılabilir.
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         '--corpora',
@@ -632,6 +754,7 @@ def main() -> None:
             loader_workers=args.loader_workers,
         )
     except ValueError as error:
+        # Doğrulama hatalarını CLI diline çevir: kullanım bilgisiyle çık.
         parser.error(str(error))
 
 

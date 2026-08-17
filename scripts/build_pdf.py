@@ -1,8 +1,10 @@
-"""Render docs/RAPOR.md to a submittable PDF (docs/RAPOR.pdf).
+"""docs/RAPOR.md dosyasını teslim edilebilir bir PDF'e (docs/RAPOR.pdf) çevirir.
 
-Pipeline: Markdown -> styled HTML -> PDF via headless Chrome/Edge
-(`--print-to-pdf`). Chrome handles UTF-8 (Turkish characters) and embeds the
-figures correctly. Falls back across Chrome/Edge install locations.
+İş akışı: Markdown -> stillendirilmiş HTML -> başsız (headless) Chrome/Edge ile
+PDF (`--print-to-pdf` bayrağı). Neden bu yol? LaTeX kurulumu ya da ek bir PDF
+kütüphanesi gerektirmez; Chrome UTF-8'i (Türkçe karakterleri) kusursuz işler ve
+rapordaki figürleri PDF'in içine gömer. Chrome bulunamazsa bilinen Edge kurulum
+yolları sırayla denenir; hiçbiri yoksa HTML bırakılır ve elle yazdırma önerilir.
 
     python scripts/build_pdf.py
     python scripts/build_pdf.py --md docs/RAPOR.md --pdf docs/RAPOR.pdf
@@ -19,6 +21,12 @@ from pathlib import Path
 
 import markdown
 
+# PDF'in görünümünü belirleyen stil sayfası (rapor tasarımının tamamı burada):
+# @page A4 boyutunu ve kenar boşluklarını ayarlar; başlıklar koyu mavi bir
+# akademik temaya boyanır; tablolar çizgili ve gölgeli, kod blokları gri
+# zeminli, figürler ortalanmış ve çerçevelidir. "p:has(> img) + p" seçicisi,
+# bir resmin hemen ardından gelen paragrafı figür altyazısı sayıp küçük ve
+# ortalanmış gösterir. Bu dizgi çalışma zamanında HTML şablonuna gömülür.
 CSS = """
 @page { size: A4; margin: 20mm 18mm 18mm 18mm; }
 * { box-sizing: border-box; }
@@ -57,16 +65,28 @@ strong { color: #16202b; }
 h2 + p, h3 + p { margin-top: 4px; }
 """
 
+# Markdown'dan üretilen gövdenin içine yerleştirildiği iskelet sayfa.
+# lang="tr" tarayıcıya belgenin dilini söyler, charset=utf-8 ise Türkçe
+# karakterlerin doğru çözülmesini garanti eder. {css} ve {body} alanları
+# aşağıda .format() ile doldurulur.
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="tr"><head><meta charset="utf-8"><style>{css}</style></head>
 <body>{body}</body></html>"""
 
 
 def find_browser() -> str | None:
+    """Sistemde kurulu bir Chrome ya da Edge çalıştırılabilir dosyası arar.
+
+    İki aşamalı strateji: önce PATH üzerinde ara (`shutil.which` — komut
+    satırından çağrılabilen programları bulur); orada yoksa Windows'taki
+    bilinen varsayılan kurulum yollarını sırayla dene. Hiçbiri bulunamazsa
+    None döner; çağıran taraf bu durumda kullanıcıya elle yazdırmayı önerir.
+    """
     for name in ("chrome", "chrome.exe", "msedge", "msedge.exe"):
         p = shutil.which(name)
         if p:
             return p
+    # PATH'te yoksa: tipik 64-bit ve 32-bit "Program Files" konumları.
     candidates = [
         r"C:\Program Files\Google\Chrome\Application\chrome.exe",
         r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
@@ -80,30 +100,45 @@ def find_browser() -> str | None:
 
 
 def main():
+    """Markdown'ı HTML'e çevirir, tarayıcıyla PDF'e bastırır, sonucu raporlar."""
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--md", default="docs/RAPOR.md")
     ap.add_argument("--pdf", default="docs/RAPOR.pdf")
     args = ap.parse_args()
 
+    # resolve() yolları mutlak hale getirir: tarayıcıya file:// URI'si ve
+    # --print-to-pdf hedefi verirken göreli yol kullanmak güvenilir olmaz.
     md_path = Path(args.md).resolve()
     pdf_path = Path(args.pdf).resolve()
-    docs_dir = md_path.parent  # so relative figures/ paths resolve
+    docs_dir = md_path.parent  # HTML buraya yazılacak ki göreli figures/ yolları çözülsün
 
+    # 1) Markdown -> HTML gövdesi. Eklentiler: "tables" (Markdown tabloları),
+    #    "fenced_code" (``` ile çevrili kod blokları), "sane_lists" (liste
+    #    numaralandırma tuhaflıklarını düzeltir), "attr_list" (öğelere
+    #    {: ...} sözdizimiyle nitelik ekleme imkânı).
     text = md_path.read_text(encoding="utf-8")
     body = markdown.markdown(
         text, extensions=["tables", "fenced_code", "sane_lists", "attr_list"]
     )
     html = HTML_TEMPLATE.format(css=CSS, body=body)
-    # Write the HTML next to the markdown so relative figures/ paths work.
+    # HTML'i markdown ile AYNI klasöre yazıyoruz; rapordaki göreli
+    # figures/... resim yolları böylece tarayıcıda da aynen çalışır.
     html_path = docs_dir / (md_path.stem + ".html")
     html_path.write_text(html, encoding="utf-8")
 
+    # 2) PDF'e basacak tarayıcıyı bul; bulunamazsa HTML'i bırakıp kullanıcıya
+    #    "elle yazdır" yolunu tarif ederek hata koduyla çık.
     browser = find_browser()
     if not browser:
         print("No Chrome/Edge found. HTML written to:", html_path,
               "\nOpen it and 'Print -> Save as PDF' manually.")
         sys.exit(1)
 
+    # 3) Tarayıcıyı görünmez (headless) modda çalıştırıp "Yazdır -> PDF" işlemi
+    #    yaptır. Geçici bir profil klasörü (--user-data-dir) veriyoruz ki o an
+    #    açık olan gerçek Chrome oturumuyla çakışmasın; `with` bloğu bitince bu
+    #    klasör otomatik silinir. --no-pdf-header-footer, sayfa kenarlarına
+    #    tarih/URL basılmasını engeller (temiz bir teslim görüntüsü için).
     with tempfile.TemporaryDirectory() as profile:
         cmd = [
             browser, "--headless", "--disable-gpu", "--no-sandbox",
@@ -113,12 +148,18 @@ def main():
             html_path.as_uri(),
         ]
         print("Rendering PDF via", Path(browser).name, "...")
+        # timeout=120: tarayıcı takılırsa betik sonsuza dek beklemesin.
+        # capture_output ile hata mesajlarını yakalayıp aşağıda gösterebiliyoruz.
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        # Çift kontrol: hem çıkış kodu 0 olmalı hem de PDF gerçekten oluşmalı
+        # (bazı tarayıcı sürümleri hata verse de 0 dönebiliyor).
         if res.returncode != 0 or not pdf_path.exists():
             print("Browser print failed:", res.stderr[:400])
             print("HTML is at:", html_path, "-- you can print it manually.")
             sys.exit(1)
 
+    # Dosya boyutunu KB olarak raporla: anormal küçük bir PDF, bir şeylerin
+    # ters gittiğine dair hızlı bir ipucudur (ör. boş sayfa basılmış olabilir).
     size_kb = pdf_path.stat().st_size / 1024
     print(f"PDF written: {pdf_path} ({size_kb:.0f} KB)")
 

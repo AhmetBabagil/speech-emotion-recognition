@@ -1,20 +1,32 @@
-﻿"""Assignment 2 classical ML pipeline.
+﻿"""Ödev 2 klasik makine öğrenmesi boru hattı (Decision Tree / Random Forest / Gradient Boosting).
 
-For each corpus and model:
-  - choose the Wav2Vec2 pooled feature size,
-  - repeat the search with and without PCA,
-  - optimize the required model hyperparameters on validation data,
-  - refit the best configuration on train+validation,
-  - evaluate once on test data.
+Her veri seti (corpus) ve her model için izlenen akış:
+  - Wav2Vec2 havuzlanmış öznitelik boyutu (F) seçilir,
+  - arama PCA'lı ve PCA'sız olarak tekrarlanır (P),
+  - ödevde istenen model hiperparametreleri geçerleme (validation) verisinde optimize edilir,
+  - en iyi yapılandırma train+validation üzerinde yeniden fit edilir,
+  - test verisinde yalnızca BİR kez değerlendirme yapılır.
 
-The ML workflow uses numpy, pandas and scikit-learn. Wav2Vec2 is not run here;
-this file only reads the cached vectors produced in Assignment 1. Report-mode outputs are kept under odev2/outputs for submission review.
+Bu protokol Ödev 1'deki KNN çalışmasıyla birebir aynıdır; amaç, model aileleri
+arasında adil bir karşılaştırma yapabilmektir (aynı bölmeler, aynı öznitelikler,
+aynı metrikler).
+
+Makine öğrenmesi iş akışı yalnızca numpy, pandas ve scikit-learn kullanır.
+Wav2Vec2 burada ÇALIŞTIRILMAZ; bu dosya sadece Ödev 1'de üretilip cache'lenen
+vektörleri okur. Rapor modu çıktıları, teslim incelemesi için odev2/outputs
+altında tutulur.
 """
 
 from __future__ import annotations
 
 import os
 
+# BLAS/OpenMP iş parçacığı sayıları, DAHA sklearn/numpy import edilmeden 1'e
+# sabitlenir (bu yüzden bu satırlar dosyanın en üstündedir). Nedeni: Windows'ta
+# ve kısıtlı ortamlarda bu kütüphanelerin çok iş parçacıklı çalışması hem CPU'yu
+# aşırı doldurabiliyor hem de izin/kararlılık sorunları çıkarabiliyor.
+# setdefault kullanıldığı için, kullanıcı bu değişkenleri dışarıdan ayarlamışsa
+# ona dokunulmaz — yalnızca boşsa 1 yazılır.
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
@@ -36,8 +48,12 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.utils.class_weight import compute_sample_weight
 
+# Proje kökünü arama yoluna ekle: `ser` ve `odev1` paketleri doğrudan
+# çalıştırmada da bulunabilsin.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+# Ödev 1 ile ortak parçalar bilerek yeniden kullanılır: metrikler, çizim,
+# öznitelik yükleme ve bölme mantığı iki ödevde birebir aynı olmalıdır.
 from odev1.evaluation import compute_metrics, plot_confusion  # noqa: E402
 from odev1.features_w2v import load_pooled  # noqa: E402
 from ser.config import Config  # noqa: E402
@@ -47,12 +63,17 @@ from ser.utils import ensure_dir, get_logger, set_seed  # noqa: E402
 
 log = get_logger("odev2.models")
 
-SEED = 42
+SEED = 42  # tüm rastgele işlemler bu tohumu kullanır → deneyler tekrarlanabilir
 
+# ---- Ortak arama uzayları ---------------------------------------------------
+# F: Ödev 1 ile aynı üç havuzlama seçeneği ve boyutları.
 POOLS = ["mean", "mean_std", "mean_std_max"]
 POOL_DIM = {"mean": 768, "mean_std": 1536, "mean_std_max": 2304}
+# P: 0 "PCA yok" demektir; kalanlar hedef bileşen sayılarıdır.
 PCA_DIMS = [0, 32, 64, 128, 256, 512]
 
+# Üç ızgara modu: quick küçük bir duman testi, report teslim için dengeli bir
+# arama, full ise en kapsamlı (ve en yavaş) taramadır.
 QUICK_POOLS = ["mean"]
 QUICK_PCA_DIMS = [0, 64]
 REPORT_POOLS = POOLS
@@ -62,10 +83,22 @@ GRID_MODES = ("quick", "report", "full")
 
 @dataclass(frozen=True)
 class ModelSpec:
-    """Bir model ailesinin adini, gridlerini ve estimator fabrikasini birlikte tutar.
+    """Bir model ailesinin adını, ızgaralarını ve estimator fabrikasını birlikte tutar.
 
-    Bu veri sinifi sayesinde Decision Tree, Random Forest ve Gradient Boosting ayni
-    deney dongusunden gecirilebilir; modele ozel farklar tek yapida tanimlanir.
+    Bu veri sınıfı (dataclass) sayesinde Decision Tree, Random Forest ve Gradient
+    Boosting aynı deney döngüsünden geçirilebilir; modele özel farklar tek yapıda
+    tanımlanır. `frozen=True` nesneyi değiştirilemez yapar — tanımların deney
+    sırasında yanlışlıkla bozulmasını engeller.
+
+    Alanların anlamları:
+      * ``name``            : dosya adlarında ve CLI'da kullanılan makine adı,
+      * ``display_name``    : tablolarda/grafiklerde görünen okunur ad,
+      * ``param_grid``      : full mod için hiperparametre listeleri,
+      * ``report_grid``     : report modunun daraltılmış listeleri,
+      * ``quick_grid``      : hızlı kontrol için en küçük listeler,
+      * ``make_estimator``  : parametre sözlüğünden sklearn modeli kuran fonksiyon,
+      * ``fit_with_sample_weight`` : sınıf dengesizliği örnek ağırlığıyla mı çözülecek
+        (class_weight parametresi olmayan HistGradientBoosting için gerekli).
     """
     name: str
     display_name: str
@@ -77,17 +110,24 @@ class ModelSpec:
 
 
 def _grid_product(grid: dict[str, list[Any]]) -> list[dict[str, Any]]:
-    """Hiperparametre listelerinin Kartezyen carpimini ayar sozluklerine cevirir."""
+    """Hiperparametre listelerinin Kartezyen çarpımını ayar sözlükleri listesine çevirir.
+
+    Örnek: {"a": [1, 2], "b": [x]} → [{"a": 1, "b": x}, {"a": 2, "b": x}].
+    `itertools.product` tüm kombinasyonları üretir; her kombinasyon `zip` ile
+    anahtar adlarıyla eşleştirilip sözlük yapılır. Grid search'ün temel taşı.
+    """
     keys = list(grid.keys())
     values = [grid[k] for k in keys]
     return [dict(zip(keys, combo)) for combo in product(*values)]
 
 
 def _grid_settings(spec: ModelSpec, grid_mode: str) -> tuple[list[str], list[int], list[dict[str, Any]]]:
-    """Quick/report/full moduna gore feature, PCA ve model ayarlarini secer.
+    """Quick/report/full moduna göre feature, PCA ve model ayar listelerini seçer.
 
-    `quick` calisma kontrolu, `report` teslim deneyleri, `full` ise en genis arama
-    icindir. Report modunda pahali Gradient Boosting yalniz none/64 PCA dener.
+    `quick` kodun uçtan uca çalıştığını görmek için, `report` teslim edilecek
+    deneyler için, `full` ise en geniş arama içindir. Report modunda pahalı olan
+    Gradient Boosting'e özel bir istisna vardır: yalnızca none/64 PCA denenir,
+    aksi hâlde toplam süre orantısız uzardı.
     """
     if grid_mode == "quick":
         return QUICK_POOLS, QUICK_PCA_DIMS, _grid_product(spec.quick_grid)
@@ -100,35 +140,64 @@ def _grid_settings(spec: ModelSpec, grid_mode: str) -> tuple[list[str], list[int
 
 
 def _json_default(value: Any) -> str:
-    """NumPy skalerlerini JSON'un yazabilecegi yerel Python degerlerine cevirir."""
+    """NumPy skalerlerini JSON'un yazabileceği yerel Python değerlerine çevirir.
+
+    json.dumps, np.int64 / np.float64 gibi türleri doğrudan yazamaz ve hata
+    fırlatır; bu fonksiyon `default=` kancası olarak verilir ve `.item()` ile
+    saf Python sayısına çevirir. Tanımadığı her şeyi de metne dönüştürür.
+    """
     if isinstance(value, (np.integer, np.floating)):
         return value.item()
     return str(value)
 
 
 def _params_to_text(params: dict[str, Any]) -> str:
-    """Hiperparametre sozlugunu CSV/JSON tablolarinda sabit sirali metne cevirir."""
+    """Hiperparametre sözlüğünü CSV/JSON tablolarında sabit sıralı metne çevirir.
+
+    `sort_keys=True` sayesinde aynı ayar her zaman aynı metni üretir; böylece
+    tablolarda satırlar güvenle karşılaştırılabilir ve gruplanabilir.
+    """
     return json.dumps(params, ensure_ascii=False, sort_keys=True, default=_json_default)
 
 
+# ---- Model fabrikaları: parametre sözlüğü → kurulmuş sklearn modeli ---------
+
 def _make_decision_tree(params: dict[str, Any]) -> DecisionTreeClassifier:
-    """Sinif dengesini agirliklandiran, tekrarlanabilir Decision Tree kurar."""
+    """Sınıf dengesini ağırlıklandıran, tekrarlanabilir bir Karar Ağacı kurar.
+
+    `class_weight="balanced"`: az örnekli duygu sınıflarının hataları daha
+    pahalı sayılır, model azınlık sınıflarını yok sayamaz.
+    `random_state=SEED`: eşit kazançlı bölünmelerde seçim hep aynı olur.
+    """
     return DecisionTreeClassifier(random_state=SEED, class_weight="balanced", **params)
 
 
 def _make_random_forest(params: dict[str, Any]) -> RandomForestClassifier:
-    """Sinif agirlikli Random Forest kurar; Windows guvenligi icin tek is parcasi kullanir."""
+    """Sınıf ağırlıklı Rastgele Orman kurar; Windows güvenliği için tek iş parçacığı kullanır.
+
+    Rastgele Orman = çok sayıda karar ağacının (her biri farklı örnek ve
+    öznitelik alt kümesiyle eğitilip) oy birliği; tek ağaca göre varyansı düşürür.
+    """
     return RandomForestClassifier(
         random_state=SEED,
         class_weight="balanced",
-        # n_jobs=1 avoids Windows permission issues in restricted environments.
+        # n_jobs=1: kısıtlı Windows ortamlarında paralel süreç başlatma izin
+        # hatalarına yol açabildiği için paralellik bilerek kapalı tutulur.
         n_jobs=1,
         **params,
     )
 
 
 def _make_gradient_boosting(params: dict[str, Any]) -> HistGradientBoostingClassifier:
-    """Histogram tabanli, early-stopping kullanan Gradient Boosting modeli kurar."""
+    """Histogram tabanlı, early-stopping kullanan Gradient Boosting modeli kurar.
+
+    Gradient Boosting, ağaçları sırayla ekler; her yeni ağaç öncekilerin
+    hatasını düzeltmeye çalışır. "Hist" sürümü öznitelikleri kutulara (bin)
+    ayırarak büyük veride çok daha hızlıdır. Süreyi sınırlamak için:
+      * ``max_iter=30``      : en fazla 30 ağaç turu,
+      * ``max_bins=32``      : kaba ama hızlı histogramlar,
+      * ``early_stopping=True``: iç doğrulama skoru iyileşmeyince erken durur.
+    """
     return HistGradientBoostingClassifier(
         random_state=SEED,
         max_iter=30,
@@ -138,10 +207,14 @@ def _make_gradient_boosting(params: dict[str, Any]) -> HistGradientBoostingClass
     )
 
 
+# ---- Deneyde yarışan üç model ailesi ve hiperparametre ızgaraları -----------
 MODEL_SPECS: list[ModelSpec] = [
     ModelSpec(
         name="decision_tree",
         display_name="Karar Agaci",
+        # criterion: bölünme kalitesi ölçütü; max_depth: aşırı öğrenmeyi sınırlar
+        # (None = sınırsız); min_samples_split: bir düğümün bölünebilmesi için
+        # gereken en az örnek sayısı (büyük değer = daha sade ağaç).
         param_grid={
             "criterion": ["gini", "entropy", "log_loss"],
             "max_depth": [None, 4, 8, 12, 16, 24],
@@ -162,6 +235,9 @@ MODEL_SPECS: list[ModelSpec] = [
     ModelSpec(
         name="random_forest",
         display_name="Rastgele Orman",
+        # n_estimators: ormandaki ağaç sayısı; max_features: her bölünmede
+        # rastgele değerlendirilecek öznitelik sayısı (sqrt/log2/oran) — ağaçlar
+        # arası çeşitliliğin ana kaynağı.
         param_grid={
             "n_estimators": [100, 200, 400],
             "max_depth": [None, 8, 16, 24],
@@ -182,6 +258,9 @@ MODEL_SPECS: list[ModelSpec] = [
     ModelSpec(
         name="gradient_boosting",
         display_name="Gradient Boosting",
+        # learning_rate: her ağacın katkısının küçültme çarpanı (küçük değer =
+        # yavaş ama genelde daha iyi genelleme); max_depth: tek ağacın derinliği
+        # (boosting'de sığ ağaçlar tercih edilir, 1 = karar kütüğü/stump).
         param_grid={
             "learning_rate": [0.03, 0.05, 0.1, 0.2],
             "max_depth": [1, 2, 3, 5],
@@ -195,13 +274,19 @@ MODEL_SPECS: list[ModelSpec] = [
             "max_depth": [1, 3],
         },
         make_estimator=_make_gradient_boosting,
+        # class_weight parametresi olmadığı için denge örnek ağırlığıyla sağlanır.
         fit_with_sample_weight=True,
     ),
 ]
 
 
 def _splits_for(corpus: str, manifest: str):
-    """Tek corpus icin Odev 1 ile ayni speaker-independent splitleri uretir."""
+    """Tek corpus için Ödev 1 ile birebir aynı konuşmacı-bağımsız bölmeleri üretir.
+
+    Aynı seed (42) ve aynı "speaker" bölme stratejisi kullanıldığı için train/
+    val/test kümeleri Ödev 1'dekiyle özdeştir; bu, KNN ile Ödev 2 modellerinin
+    sonuçlarını doğrudan karşılaştırılabilir kılan kritik ayrıntıdır.
+    """
     cfg = Config()
     cfg.data.manifest = manifest
     cfg.data.train_corpora = (corpus,)
@@ -213,7 +298,12 @@ def _splits_for(corpus: str, manifest: str):
 
 
 def _fit_pca(Xtr_scaled: np.ndarray, requested_dim: int) -> PCA | None:
-    """PCA'yi sadece verilen fit matrisine uyarlar; sifir boyut PCA yok demektir."""
+    """PCA'yı yalnızca verilen fit matrisine uydurur; sıfır boyut "PCA yok" demektir.
+
+    Bileşen sayısı, matematiksel üst sınırı (min(örnek sayısı, öznitelik
+    sayısı)) aşamayacağı için gerekirse kırpılır. Validation/test verisi fit'e
+    asla katılmaz — bilgi sızıntısı (leakage) engellenir.
+    """
     if requested_dim == 0:
         return None
     n_eff = min(requested_dim, Xtr_scaled.shape[1], Xtr_scaled.shape[0])
@@ -225,7 +315,11 @@ def _transform_with_pca(
     Xva: np.ndarray,
     requested_dim: int,
 ) -> tuple[np.ndarray, np.ndarray, int | str]:
-    """PCA'yi train'e fit edip train ve validation'i ayni donusumle projekte eder."""
+    """PCA'yı train'e fit edip train ve validation'ı AYNI dönüşümle projekte eder.
+
+    Dönüş değerinin üçüncü elemanı raporlama içindir: PCA kullanılmadıysa
+    "none" metni, kullanıldıysa fiilen elde edilen bileşen sayısı döner.
+    """
     pca = _fit_pca(Xtr, requested_dim)
     if pca is None:
         return Xtr, Xva, "none"
@@ -233,10 +327,12 @@ def _transform_with_pca(
 
 
 def _fit_estimator(spec: ModelSpec, params: dict[str, Any], X: np.ndarray, y: np.ndarray):
-    """Modeli kurup gerekirse balanced sample weight ile fit eder.
+    """Modeli kurar ve gerekiyorsa dengeli örnek ağırlıklarıyla fit eder.
 
-    Tree/Forest kendi `class_weight` ayarini kullanir. HistGradientBoosting icin
-    ayni amac `compute_sample_weight` ile ornek bazinda gerceklestirilir.
+    Tree/Forest sınıf dengesizliğini kendi `class_weight="balanced"` ayarıyla
+    çözer. HistGradientBoosting'de bu parametre olmadığından aynı etki
+    `compute_sample_weight` ile örnek başına ağırlık verilerek elde edilir:
+    az örnekli sınıfın her örneği eğitim kaybında daha ağır sayılır.
     """
     estimator = spec.make_estimator(params)
     if spec.fit_with_sample_weight:
@@ -248,7 +344,11 @@ def _fit_estimator(spec: ModelSpec, params: dict[str, Any], X: np.ndarray, y: np
 
 
 def _metric_row(prefix: str, metrics: dict[str, Any]) -> dict[str, float]:
-    """Metrik sozlugunu CSV icin prefix'li ve dort ondaliga yuvarlanmis satira cevirir."""
+    """Metrik sözlüğünü CSV için prefix'li ve dört ondalığa yuvarlanmış satıra çevirir.
+
+    Prefix ("val" veya "test") sayesinde aynı dört metrik, tabloda hangi kümeye
+    ait olduğu belli olacak şekilde sütun adlarına yazılır.
+    """
     return {
         f"{prefix}_accuracy": round(metrics["accuracy"], 4),
         f"{prefix}_balanced_accuracy": round(metrics["balanced_accuracy"], 4),
@@ -267,36 +367,43 @@ def run_model_for_dataset(
     out_dir: Path,
     grid_mode: str = "report",
 ) -> dict[str, Any]:
-    """Tek corpus-model cifti icin validation gridini ve final testi calistirir.
+    """Tek corpus-model çifti için geçerleme taramasını ve final testi çalıştırır.
 
-    Feature pooling, PCA boyutu ve model hiperparametreleri validation setinde
-    taranir. En iyi ayar train+validation ile yeniden egitilir; test yalniz final
-    metrik, sinif raporu ve confusion matrix uretmek icin kullanilir.
+    Ödev 1'deki KNN protokolünün aynısı, farklı bir modelle: feature havuzu (F),
+    PCA boyutu (P) ve modelin kendi hiperparametreleri validation kümesinde
+    taranır. En iyi ayar train+validation üzerinde yeniden eğitilir; test kümesi
+    yalnızca final metrikleri, sınıf raporunu ve karmaşıklık matrisini üretmek
+    için BİR kez kullanılır.
     """
     pools, pca_dims, params_grid = _grid_settings(spec, grid_mode)
 
-    rows: list[dict[str, Any]] = []
-    best: dict[str, Any] | None = None
+    rows: list[dict[str, Any]] = []      # tüm denemelerin sonuçları (CSV'ye)
+    best: dict[str, Any] | None = None   # şimdiye dek görülen en iyi ayar
 
+    # ================= 1. AŞAMA: VALIDATION ÜZERİNDE IZGARA ARAMASI =========
     for pool in pools:
         # F: mean(768), mean+std(1536) veya mean+std+max(2304).
+        # Öznitelikler pool başına bir kez yüklenir; içteki döngüler paylaşır.
         Xtr, ytr = load_pooled(train_df, pool, cache_dir=cache_dir)
         Xva, yva = load_pooled(val_df, pool, cache_dir=cache_dir)
         if len(Xtr) == 0 or len(Xva) == 0:
             log.warning("[%s/%s/%s] missing train or validation features", corpus, spec.name, pool)
             continue
 
-        # Scaler ve PCA validation'a degil, yalniz train'e fit edilir.
+        # Scaler ve PCA validation'a değil, YALNIZCA train'e fit edilir; aksi
+        # hâlde validation bilgisi ön işleme üzerinden modele sızardı.
         scaler = StandardScaler().fit(Xtr)
         Xtr_s = scaler.transform(Xtr)
         Xva_s = scaler.transform(Xva)
 
         for requested_pca in pca_dims:
-            # Ayni scaled feature matrisi farkli PCA boyutlarinda tekrar kullanilir.
+            # Aynı ölçeklenmiş matris farklı PCA boyutlarında yeniden kullanılır
+            # (ölçekleme her PCA denemesi için tekrar hesaplanmaz — zaman kazancı).
             Xtr_p, Xva_p, effective_pca = _transform_with_pca(Xtr_s, Xva_s, requested_pca)
 
             for params in params_grid:
-                # Her estimator sifirdan kurulur; kombinasyonlar birbirini etkilemez.
+                # Her kombinasyon için estimator SIFIRDAN kurulur; böylece
+                # denemeler birbirinin durumundan etkilenmez.
                 estimator = _fit_estimator(spec, params, Xtr_p, ytr)
                 metrics = compute_metrics(yva, estimator.predict(Xva_p))
                 row = {
@@ -312,7 +419,9 @@ def run_model_for_dataset(
                 }
                 rows.append(row)
 
-                # Birincil secim macro-F1; esitlikte balanced accuracy ve accuracy.
+                # Seçim ölçütü bir üçlü (tuple): birincil makro-F1, eşitlikte
+                # dengeli doğruluk, o da eşitse doğruluk. Python tuple'ları
+                # eleman eleman karşılaştırdığı için tek `>` yeterlidir.
                 score = (
                     metrics["macro_f1"],
                     metrics["balanced_accuracy"],
@@ -328,19 +437,23 @@ def run_model_for_dataset(
                         "val_metrics": metrics,
                     }
 
+    # Hiçbir kombinasyon çalışmadıysa (ör. cache boşsa) anlaşılır bir hata ver.
     if best is None:
         raise RuntimeError(
             f"No valid validation result for corpus={corpus}, model={spec.name}. "
             "Run odev1/extract.py first or pass a manifest covered by the feature cache."
         )
 
+    # Tüm arama sonuçları, en iyiler üstte olacak şekilde CSV'ye yazılır.
     grid = pd.DataFrame(rows).sort_values(
         ["val_macro_f1", "val_balanced_accuracy", "val_accuracy"], ascending=False
     )
     grid_path = out_dir / f"{spec.name}_validation_grid.csv"
     grid.to_csv(grid_path, index=False)
 
-    # Model secimi bittigi icin validation'i final egitim verisine katabiliriz.
+    # ================= 2. AŞAMA: FİNAL EĞİTİM + TEK SEFERLİK TEST ===========
+    # Model seçimi bittiği için validation'ı final eğitim verisine katabiliriz
+    # (daha fazla eğitim örneği genellikle daha iyi final model demektir).
     fit_df = pd.concat([train_df, val_df], ignore_index=True)
     Xfit, yfit = load_pooled(fit_df, best["pool"], cache_dir=cache_dir)
     Xte, yte = load_pooled(test_df, best["pool"], cache_dir=cache_dir)
@@ -349,7 +462,8 @@ def run_model_for_dataset(
             f"No valid train+val or test features for corpus={corpus}, model={spec.name}."
         )
 
-    # Final scaler/PCA, daha buyuk train+val verisi uzerinde bastan fit edilir.
+    # Final scaler/PCA, daha büyük train+val verisi üzerinde BAŞTAN fit edilir;
+    # test verisi yalnızca transform edilir (fit'e asla katılmaz).
     scaler = StandardScaler().fit(Xfit)
     Xfit_s = scaler.transform(Xfit)
     Xte_s = scaler.transform(Xte)
@@ -364,6 +478,7 @@ def run_model_for_dataset(
     estimator = _fit_estimator(spec, best["params"], Xfit_p, yfit)
     test_metrics = compute_metrics(yte, estimator.predict(Xte_p))
 
+    # ---- Sonuç paketi: raporda ve karşılaştırma tablolarında kullanılır ----
     result = {
         "corpus": corpus,
         "model": spec.display_name,
@@ -415,12 +530,18 @@ def run_dataset(
     grid_mode: str = "report",
     model_keys: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
-    """Bir corpusu boler, secilen model ailelerini sirayla calistirir."""
+    """Bir corpus'u train/val/test olarak böler ve seçilen model ailelerini sırayla çalıştırır.
+
+    ``model_keys`` None ise üç modelin tamamı koşulur; verilirse yalnızca
+    istenen alt küme çalışır (örneğin sadece "random_forest"). Bilinmeyen model
+    adları, sessizce atlanmak yerine baştan hata ile reddedilir.
+    """
     set_seed(SEED)
     out_dir = ensure_dir(Path(out_root) / corpus)
     train_df, val_df, test_df = _splits_for(corpus, manifest)
     log.info("[%s] train=%d val=%d test=%d", corpus, len(train_df), len(val_df), len(test_df))
 
+    # Model seçimi: ya hepsi ya da kullanıcının istediği doğrulanmış alt küme.
     if model_keys is None:
         specs = MODEL_SPECS
     else:
@@ -446,7 +567,12 @@ def run_dataset(
 
 
 def _comparison_rows(results: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
-    """Ic ice sonuc sozluklerini model karsilastirma CSV'si icin duz satirlara acar."""
+    """İç içe sonuç sözlüklerini model karşılaştırma CSV'si için düz satırlara açar.
+
+    Girdi yapısı {corpus → {model → sonuç}} şeklindedir; CSV ise satır başına
+    bir (corpus, model) çifti ister. Bu fonksiyon o düzleştirmeyi yapar ve her
+    satıra en iyi ayar + validation + test metriklerini koyar.
+    """
     rows: list[dict[str, Any]] = []
     for corpus, corpus_results in results.items():
         for result in corpus_results.values():
@@ -472,7 +598,13 @@ def _comparison_rows(results: dict[str, dict[str, Any]]) -> list[dict[str, Any]]
 
 
 def _load_knn_rows(corpora: tuple[str, ...], knn_out_root: str) -> list[dict[str, Any]]:
-    """Odev 1 KNN JSON'larini Odev 2 karsilastirma tablosunun semasina donusturur."""
+    """Ödev 1 KNN JSON çıktısını Ödev 2 karşılaştırma tablosunun şemasına dönüştürür.
+
+    Amaç: KNN'in de aynı tabloda satır olarak yer alması. KNN sonucunda
+    balanced accuracy validation için kaydedilmediğinden o hücre boş bırakılır;
+    K değeri diğer modellerin hiperparametreleriyle aynı biçimde ("params"
+    sütununda JSON olarak) gösterilir. Dosyası olmayan corpus sessizce atlanır.
+    """
     rows: list[dict[str, Any]] = []
     for corpus in corpora:
         path = Path(knn_out_root) / corpus / "result.json"
@@ -510,33 +642,43 @@ def run_all(
     model_keys: tuple[str, ...] | None = None,
     knn_out_root: str = "odev1/outputs",
 ) -> dict[str, Any]:
-    """Tum corpus/model deneylerini yonetir ve ortak CSV/summary ciktilarini yazar.
+    """Tüm corpus/model deneylerini yönetir ve ortak CSV/summary çıktılarını yazar.
 
-    `model_comparison.csv` yalniz Odev 2 modellerini,
-    `test_comparison_with_knn.csv` ise Odev 1 KNN sonucunu da icerir.
+    Ödev 2'nin en üst seviye fonksiyonudur. Üretilen dosyalar:
+      * ``model_comparison.csv``          — yalnızca Ödev 2 modelleri,
+      * ``test_comparison_with_knn.csv``  — Ödev 1 KNN sonucu da eklenmiş hâli,
+      * ``summary.json``                  — deney ayarları + tüm sonuçların özeti.
+
+    ``quick=True`` pratik bir kısayoldur: grid_mode'u "quick"e zorlar.
     """
     if quick:
         grid_mode = "quick"
+    # Geçersiz mod, saatler süren deney başlamadan önce yakalanır.
     if grid_mode not in GRID_MODES:
         raise ValueError(f"Unknown grid mode: {grid_mode}. Expected one of {GRID_MODES}.")
     out_root_path = ensure_dir(out_root)
     results: dict[str, dict[str, Any]] = {}
 
+    # Her corpus bağımsız çalışır; sonuçlar corpus adıyla toplanır.
     for corpus in corpora:
         results[corpus] = run_dataset(
             corpus, manifest, cache_dir, out_root, grid_mode=grid_mode, model_keys=model_keys
         )
 
+    # ---- Karşılaştırma tabloları -------------------------------------------
+    # Önce yalnızca Ödev 2 modelleri; corpus içinde test makro-F1'e göre sıralı.
     comparison = pd.DataFrame(_comparison_rows(results))
     comparison = comparison.sort_values(["corpus", "test_macro_f1"], ascending=[True, False])
     comparison.to_csv(out_root_path / "model_comparison.csv", index=False)
 
+    # Sonra KNN satırları da eklenmiş genişletilmiş tablo (varsa).
     with_knn_rows = _comparison_rows(results) + _load_knn_rows(corpora, knn_out_root)
     if with_knn_rows:
         with_knn = pd.DataFrame(with_knn_rows)
         with_knn = with_knn.sort_values(["corpus", "test_macro_f1"], ascending=[True, False])
         with_knn.to_csv(out_root_path / "test_comparison_with_knn.csv", index=False)
 
+    # ---- summary.json: deney hangi ayarlarla koştu + tüm sonuçlar ----------
     summary = {
         "manifest": manifest,
         "cache_dir": cache_dir,

@@ -1,15 +1,23 @@
-"""Build the unified manifest CSV from CREMA-D and MELD.
+"""CREMA-D ve MELD'den birleşik manifest CSV'sini üretir.
 
-Output columns (one row per usable utterance):
-    path        absolute/relative path to a WAV file
+"Manifest" nedir ve neden var? Projede tüm eğitim/değerlendirme kodu, ham veri
+klasörlerini doğrudan taramak yerine TEK bir CSV'den beslenir. İki korpusun
+dosya düzeni ve etiketleme biçimi tamamen farklıdır (CREMA-D etiketi dosya
+adında taşır, MELD ayrı CSV'lerde tutar); bu farklılık burada, bir kez
+çözülür ve geri kalan kod tek tip satırlarla çalışır.
+
+Çıktı sütunları (kullanılabilir her kayıt için bir satır):
+    path        WAV dosyasının (mutlak/göreli) yolu
     corpus      'cremad' | 'meld'
-    speaker     CREMA-D actor id  /  MELD speaker name (for speaker-independent splits)
-    split       '' for CREMA-D, 'train'/'dev'/'test' for MELD (official folds)
-    orig_label  the dataset's own label (emotion code/string)
-    emotion     canonical label (angry/disgust/fear/happy/neutral/sad)
-    label_idx   canonical class id 0..5
+    speaker     CREMA-D oyuncu id'si / MELD konuşmacı adı
+                (konuşmacı-bağımsız bölmeler bu sütuna dayanır)
+    split       CREMA-D için '' (resmî fold'u yok), MELD için 'train'/'dev'/'test'
+                (resmî fold bilgisi; meld_official bölmesi bunu kullanır)
+    orig_label  veri kümesinin kendi etiketi (kod ya da dizge) — izlenebilirlik için
+    emotion     kanonik etiket (angry/disgust/fear/happy/neutral/sad)
+    label_idx   kanonik sınıf indeksi 0..5
 
-Only the common six emotions are kept; MELD 'surprise' rows are dropped.
+Yalnızca ortak altı duygu tutulur; MELD'in 'surprise' satırları atılır.
 """
 
 from __future__ import annotations
@@ -29,25 +37,35 @@ from ..utils import get_logger, ensure_dir
 
 log = get_logger(__name__)
 
+# MELD'in resmî fold'u -> o foldun etiket CSV'sinin dosya adı.
 SPLIT_CSV = {"train": "train_sent_emo.csv", "dev": "dev_sent_emo.csv", "test": "test_sent_emo.csv"}
 
 
 def cremad_rows(audiowav_dir: str | Path) -> list[dict]:
+    """CREMA-D WAV klasörünü tarayıp manifest satırlarını üretir.
+
+    CREMA-D'de bütün bilgi dosya adındadır:
+    ``<ActorID>_<Sentence>_<Emotion>_<Level>.wav`` (örn. 1001_DFA_ANG_XX.wav).
+    Ayrı bir etiket dosyası yoktur; adı parçalayarak hem konuşmacıyı hem duyguyu
+    çıkarırız. sorted(): dosya sistemi sırasına bağımlı kalmamak için — aynı
+    klasörden her platformda aynı sırayla aynı manifest üretilsin.
+    """
     audiowav_dir = Path(audiowav_dir)
     rows = []
     for wav in sorted(audiowav_dir.glob("*.wav")):
         parts = wav.stem.split("_")
         if len(parts) < 3:
-            continue
+            continue  # desene uymayan (bozuk adlandırılmış) dosyayı atla
+        # parts[0]=oyuncu id, parts[1]=cümle kodu (kullanılmıyor), parts[2]=duygu kodu
         actor, _sentence, code = parts[0], parts[1], parts[2]
         canon = CREMAD_CODE_TO_CANONICAL.get(code.upper())
         if canon is None:
-            continue
+            continue  # tanınmayan duygu kodu -> manifest'e alma
         rows.append({
             "path": str(wav),
             "corpus": CORPUS_CREMAD,
-            "speaker": actor,
-            "split": "",
+            "speaker": actor,        # konuşmacı-bağımsız bölme bu alana dayanır
+            "split": "",             # CREMA-D'nin resmî fold'u yok
             "orig_label": code.upper(),
             "emotion": canon,
             "label_idx": EMOTION_TO_IDX[canon],
@@ -57,6 +75,13 @@ def cremad_rows(audiowav_dir: str | Path) -> list[dict]:
 
 
 def meld_rows(csv_dir: str | Path, audio_root: str | Path) -> list[dict]:
+    """MELD'in üç fold CSV'sini okuyup manifest satırlarını üretir.
+
+    MELD'de etiketler CSV'de, sesler ise (bizim ffmpeg adımımızın ürettiği)
+    ``audio/<split>/diaX_uttY.wav`` dosyalarındadır. CSV satırı ile ses dosyası
+    burada eşleştirilir; sesi diskte OLMAYAN satırlar sessizce atlanır — böylece
+    manifest her zaman gerçekten açılabilir dosyaları listeler.
+    """
     csv_dir = Path(csv_dir)
     audio_root = Path(audio_root)
     rows = []
@@ -67,21 +92,24 @@ def meld_rows(csv_dir: str | Path, audio_root: str | Path) -> list[dict]:
             continue
         df = pd.read_csv(csv_path)
         kept = 0
+        # itertuples: iterrows'a göre çok daha hızlıdır (satırlar namedtuple gelir);
+        # _asdict() ile sütunlara isimle erişilir.
         for r in df.itertuples(index=False):
             d = r._asdict()
             emotion = str(d["Emotion"]).strip().lower()
             canon = MELD_LABEL_TO_CANONICAL.get(emotion)
             if canon is None:
-                continue
+                continue  # 'surprise' veya bilinmeyen etiket -> ortak altıda yok, atla
+            # MELD'in dosya adlandırma kuralı: dia<DialogueID>_utt<UtteranceID>.wav
             key = f"dia{int(d['Dialogue_ID'])}_utt{int(d['Utterance_ID'])}"
             wav = audio_root / split / f"{key}.wav"
             if not wav.exists():
-                continue  # audio not extracted (corrupt clip or not yet run)
+                continue  # ses çıkarılmamış (bozuk klip ya da ffmpeg adımı henüz koşmadı)
             rows.append({
                 "path": str(wav),
                 "corpus": CORPUS_MELD,
-                "speaker": str(d["Speaker"]).strip(),
-                "split": split,
+                "speaker": str(d["Speaker"]).strip(),  # dizi karakteri adı (örn. "Joey")
+                "split": split,                          # MELD'in resmî fold bilgisi
                 "orig_label": emotion,
                 "emotion": canon,
                 "label_idx": EMOTION_TO_IDX[canon],
@@ -97,6 +125,12 @@ def build_manifest(
     meld_audio_root: str | Path | None = "data/raw/meld/audio",
     out_path: str | Path = "data/processed/manifest.csv",
 ) -> pd.DataFrame:
+    """İki korpusun satırlarını toplayıp tek CSV'ye yazar; DataFrame'i döndürür.
+
+    Esnek davranır: korpuslardan biri diskte yoksa uyarı verip diğeriyle devam
+    eder (örneğin yalnızca CREMA-D indirilmişse CREMA-D-only deneyler yine
+    çalışabilsin). İkisi de yoksa anlamlı bir hata fırlatılır.
+    """
     rows: list[dict] = []
 
     if cremad_dir and Path(cremad_dir).is_dir():
@@ -104,7 +138,9 @@ def build_manifest(
     else:
         log.warning("CREMA-D dir not found: %s", cremad_dir)
 
-    # Auto-locate MELD csv dir if not given.
+    # MELD CSV klasörü verilmemişse otomatik bul: arşivin açıldığı derinlik
+    # kuruluma göre değişebildiğinden, imza dosyası (train_sent_emo.csv)
+    # özyinelemeli aranır ve bulunduğu klasör kullanılır.
     if meld_csv_dir is None:
         guess = Path("data/raw/meld")
         found = list(guess.rglob("train_sent_emo.csv"))
@@ -122,5 +158,6 @@ def build_manifest(
     ensure_dir(out_path.parent)
     df.to_csv(out_path, index=False)
     log.info("Manifest written: %s (%d rows)", out_path, len(df))
+    # Sınıf dağılımını logla: dengesizlik (özellikle MELD'de) daha bu aşamada görülsün.
     log.info("Class distribution:\n%s", df.groupby(["corpus", "emotion"]).size())
     return df

@@ -1,4 +1,9 @@
-'''Run Assignment 3 MLP validation and test experiments.
+'''Ödev 3 MLP doğrulama ve test deneylerini çalıştıran komut satırı girişi.
+
+Bu dosya projenin "başlat düğmesi"dir: komut satırı argümanlarını okur,
+öznitelik ayarlarını kurar, ardından asıl işi yapan ``odev3.pipeline.run_all``
+fonksiyonuna devreder. İş bitince (istenirse) raporu üretir ve her veri
+kümesi için tek satırlık test özetini yazdırır.
 
 Examples:
     python odev3/run_experiment.py --grid-mode report
@@ -11,6 +16,8 @@ import argparse
 from pathlib import Path
 import sys
 
+# Depo kökünü import yoluna ekle: böylece bu dosya "python odev3/run_experiment.py"
+# şeklinde doğrudan çalıştırıldığında da 'odev3' ve 'ser' paketleri bulunur.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from odev3.pipeline import run_all  # noqa: E402
@@ -18,10 +25,16 @@ from odev3.features_melspec import MelSpecConfig  # noqa: E402
 from odev3.search_space import GRID_MODES, search_space  # noqa: E402
 
 
+# Ödev şartı: öznitelik vektörü en az 4000 boyutlu olmalı. Bu sabit, yanlış
+# parametrelerle (örn. çok az kare) şartı ihlal eden bir vektör üretilmesini
+# daha komut satırında engeller.
 MIN_ASSIGNMENT_VECTOR_SIZE = 4_000
 
 
 def build_feature_config(n_frames: int, frame_strategy: str) -> MelSpecConfig:
+    # Verilen kare sayısı ve stratejiyle bir MelSpecConfig kurar, doğrular ve
+    # ödevin minimum vektör boyutu şartını denetler. Örn. n_frames=62 iken
+    # 64*62=3968 < 4000 olur ve burada hata alınır.
     config = MelSpecConfig(
         n_frames=n_frames,
         frame_strategy=frame_strategy,
@@ -43,6 +56,10 @@ def build_feature_configs(
     frame_overrides: dict[str, int | None],
     strategy_overrides: dict[str, str | None],
 ) -> dict[str, MelSpecConfig]:
+    # Her veri kümesi (corpus) için ayrı öznitelik ayarı üretir.
+    # Mantık: kullanıcı o kümeye özel bir değer verdiyse (override) onu,
+    # vermediyse genel varsayılanı kullan. "or" hilesi burada işe yarar çünkü
+    # override None olduğunda ifade varsayılana düşer.
     return {
         corpus: build_feature_config(
             frame_overrides.get(corpus) or default_frames,
@@ -53,6 +70,8 @@ def build_feature_configs(
 
 
 def _result_line(corpus: str, result: dict) -> str:
+    # Deney bitiminde konsola basılan tek satırlık özet: test doğruluğu ve
+    # macro-F1. Biçim testlerde de doğrulandığı için sabittir.
     test_metrics = result['test']
     return (
         f'{corpus}: test accuracy={test_metrics["accuracy"]:.4f}, '
@@ -61,6 +80,10 @@ def _result_line(corpus: str, result: dict) -> str:
 
 
 def main() -> None:
+    # ---------------------------------------------------------------
+    # 1) Komut satırı arayüzü: tüm ayarlar bayraklarla değiştirilebilir,
+    #    ama varsayılanlar ödevin standart akışını çalıştırır.
+    # ---------------------------------------------------------------
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -84,6 +107,9 @@ def main() -> None:
         choices=['crop_pad', 'resize'],
         default='crop_pad',
     )
+    # Her korpus için ayrı mel-frames / frame-strategy bayrakları üret
+    # (--cremad-mel-frames, --meld-frame-strategy gibi). Döngüyle üretmek,
+    # iki kümenin bayraklarının birbirinden sapmasını engeller.
     for corpus in ('cremad', 'meld'):
         parser.add_argument(f'--{corpus}-mel-frames', type=int)
         parser.add_argument(
@@ -108,6 +134,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    # ---------------------------------------------------------------
+    # 2) Argüman doğrulama ve türetilmiş ayarlar.
+    # ---------------------------------------------------------------
     if args.feature_workers < 1 or args.loader_workers < 0:
         parser.error('Worker counts must be feature>=1 and loader>=0.')
     try:
@@ -125,11 +154,17 @@ def main() -> None:
             },
         )
     except ValueError as error:
+        # parser.error hatayı kullanıcıya CLI diliyle gösterir ve programı
+        # kullanım bilgisiyle birlikte sonlandırır.
         parser.error(str(error))
+    # Epoch üst sınırı verilmemişse moda göre seç: quick modda kısa (8),
+    # gerçek deneylerde uzun (60, erken durdurma zaten gereksiz epoch'ları keser).
     max_epochs = args.max_epochs
     if max_epochs is None:
         max_epochs = 8 if args.grid_mode == 'quick' else 60
 
+    # "Tanı" (diagnostic) çalıştırmalar — quick mod veya satır limiti — gerçek
+    # deney çıktılarının üzerine yazmasın diye ayrı bir klasöre gider.
     diagnostic = args.limit_per_split is not None or args.grid_mode == 'quick'
     if args.out_root:
         output_root = args.out_root
@@ -138,6 +173,9 @@ def main() -> None:
     else:
         output_root = 'odev3/outputs'
 
+    # ---------------------------------------------------------------
+    # 3) Deneyi çalıştır: tüm ağır iş pipeline.run_all içindedir.
+    # ---------------------------------------------------------------
     print(
         f'Mod={args.grid_mode} | aday={len(search_space(args.grid_mode))} '
         f'| epoch üst sınırı={max_epochs} | çıktı={output_root}'
@@ -159,6 +197,10 @@ def main() -> None:
         feature_configs=feature_configs,
     )
 
+    # ---------------------------------------------------------------
+    # 4) Rapor üretimi ve konsol özeti. build_report importu burada, fonksiyon
+    #    içinde yapılır ki --skip-report verildiğinde o ağır modül hiç yüklenmesin.
+    # ---------------------------------------------------------------
     if not args.skip_report:
         from odev3.build_report import build_report
 

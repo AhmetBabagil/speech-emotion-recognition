@@ -1,13 +1,21 @@
 """KNN hiperparametre çalışması — Ödev 1 (yalnızca numpy/pandas/scikit-learn).
 
-Her veri seti için ayrı ayrı, üç hiperparametre taranır:
-  1. Öznitelik vektör boyutu  : mean(768) / mean_std(1536) / mean_std_max(2304)
-  2. PCA çıktı boyutu         : yok / 32 / 64 / 128 / 256
-  3. KNN komşu sayısı K       : 1 / 3 / 5 / 7 / 11 / 15 / 21 / 31
+Her veri seti için ayrı ayrı, üç hiperparametre taranır (grid search):
+  1. Öznitelik vektör boyutu F : mean(768) / mean_std(1536) / mean_std_max(2304)
+  2. PCA çıktı boyutu P        : yok / 32 / 64 / 128 / 256
+  3. KNN komşu sayısı K        : 1 / 3 / 5 / 7 / 11 / 15 / 21 / 31
 
 Akış: StandardScaler (train'e uydurulur) → PCA (train'e uydurulur) → KNN.
-Geçerleme (validation) kümesi en iyi (öznitelik, PCA, K) üçlüsünü seçer; en iyi
-yapılandırma train+val üzerine yeniden uydurulup **test** kümesinde ölçülür.
+
+Neden bu sıra? KNN, örnekler arasındaki uzaklığa dayanır; ölçeklenmemiş
+boyutlar uzaklığı tek başına domine edebilir (StandardScaler bunu düzeltir).
+PCA ise hem gürültüyü azaltır hem de KNN'in yüksek boyutta zayıflayan uzaklık
+ayrımını (curse of dimensionality) hafifletir.
+
+Model seçim protokolü: geçerleme (validation) kümesi en iyi (öznitelik, PCA, K)
+üçlüsünü seçer; test kümesine seçim sırasında ASLA bakılmaz. En iyi yapılandırma
+train+val üzerine yeniden uydurulup **test** kümesinde yalnızca bir kez ölçülür.
+Bu, test sonucunun iyimser (şişirilmiş) olmasını engelleyen standart yöntemdir.
 
 Ölçütler: doğruluk, dengeli doğruluk, makro-F1, ağırlıklı-F1 ve karmaşıklık
 matrisi. Çıktılar ``odev1/outputs/<corpus>/`` altına yazılır.
@@ -24,6 +32,8 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 from sklearn.neighbors import KNeighborsClassifier
 
+# Proje kökünü arama yoluna ekle: `ser` ve `odev1` paketleri doğrudan
+# çalıştırmada da (python odev1/...) bulunabilsin.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from ser.config import Config  # noqa: E402
@@ -35,34 +45,41 @@ from odev1.evaluation import compute_metrics, plot_confusion  # noqa: E402
 
 log = get_logger("odev1.knn")
 
-POOLS = ["mean", "mean_std", "mean_std_max"]          # feature-size hyperparameter
+# ---- Taranacak hiperparametre uzayı ----------------------------------------
+POOLS = ["mean", "mean_std", "mean_std_max"]          # F: öznitelik boyutu hiperparametresi
 POOL_DIM = {"mean": 768, "mean_std": 1536, "mean_std_max": 2304}
-PCA_DIMS = [0, 32, 64, 128, 256]                       # 0 = PCA yok
-KS = [1, 3, 5, 7, 11, 15, 21, 31]                      # KNN K
-SEED = 42
+PCA_DIMS = [0, 32, 64, 128, 256]                       # P: 0 = PCA yok demektir
+KS = [1, 3, 5, 7, 11, 15, 21, 31]                      # K: KNN komşu sayısı (tek sayılar beraberliği azaltır)
+SEED = 42  # tüm rastgelelik bu tohuma bağlanır → sonuçlar tekrarlanabilir
 
 
 def _splits_for(corpus: str, manifest: str):
-    """Tek corpus icin seed=42 ile speaker-independent train/val/test uretir.
+    """Tek corpus için seed=42 ile konuşmacı-bağımsız train/val/test bölmeleri üretir.
 
-    Bolme mantigi `ser.data.prepare_splits` icindedir; bu yardimci yalniz Odev 1
-    icin corpus ve split ayarlarini Config nesnesine yerlestirir.
+    "Konuşmacı-bağımsız" (speaker-independent) demek: aynı kişinin kayıtları
+    farklı kümelere dağıtılmaz. Aksi hâlde model duyguyu değil kişinin sesini
+    ezberleyip haksız yüksek skor alabilirdi.
+
+    Bölme mantığının kendisi `ser.data.prepare_splits` içindedir; bu yardımcı
+    yalnızca Ödev 1 için corpus ve split ayarlarını Config nesnesine yerleştirir.
     """
     cfg = Config()
     cfg.data.manifest = manifest
     cfg.data.train_corpora = (corpus,)
     cfg.data.eval_corpora = (corpus,)
-    cfg.data.split = "speaker"          # speaker-independent for both corpora
+    cfg.data.split = "speaker"          # her iki corpus için de konuşmacı-bağımsız bölme
     cfg.train.seed = SEED
     df = pd.read_csv(manifest)
     return prepare_splits(df, cfg.data, SEED)
 
 
 def _fit_pca(Xtr_scaled, n):
-    """PCA'yi sadece scaled train matrisine fit eder; `n=0` PCA kullanmaz.
+    """PCA'yı yalnızca ölçeklenmiş train matrisine fit eder; `n=0` PCA kullanılmaz demektir.
 
-    Istenen boyut ornek veya feature sayisini asarsa gecerli en buyuk boyuta
-    indirilir. Validation ve test verisi PCA fit islemine katilmaz.
+    İstenen boyut, örnek sayısını veya öznitelik sayısını aşarsa matematiksel
+    olarak mümkün olan en büyük değere indirilir (PCA bileşen sayısı bu ikisini
+    aşamaz). Önemli kural: validation ve test verisi PCA fit işlemine katılmaz —
+    aksi hâlde test bilgisi modele sızardı (data leakage).
     """
     if n == 0:
         return None
@@ -72,57 +89,69 @@ def _fit_pca(Xtr_scaled, n):
 
 
 def run_dataset(corpus: str, manifest: str, cache_dir: str, out_root: str) -> dict:
-    """Bir corpusun tum F-P-K aramasini ve final KNN testini calistirir.
+    """Bir corpus'un tüm F-P-K taramasını ve final KNN testini çalıştırır.
 
-    Once validation macro-F1 ile en iyi feature/PCA/K ayari secilir. Sonra bu ayar
-    train+validation uzerinde bastan fit edilip testte bir kez degerlendirilir.
+    İki aşamalı protokol:
+      1. Arama: her (F, P, K) kombinasyonu train'de eğitilir, validation'da
+         ölçülür; en yüksek validation makro-F1'e sahip ayar seçilir.
+      2. Final: seçilen ayar train+validation birleşimi üzerinde baştan fit
+         edilip test kümesinde bir kez değerlendirilir.
     """
     set_seed(SEED)
     out_dir = ensure_dir(Path(out_root) / corpus)
     train_df, val_df, test_df = _splits_for(corpus, manifest)
     log.info("[%s] train=%d val=%d test=%d", corpus, len(train_df), len(val_df), len(test_df))
 
-    grid_rows = []
-    best = None  # (val_macro_f1, dict)
+    grid_rows = []   # her denenen kombinasyonun sonucu (CSV'ye yazılacak)
+    best = None      # (val_macro_f1, en iyi ayar sözlüğü)
 
+    # ================= 1. AŞAMA: VALIDATION ÜZERİNDE IZGARA ARAMASI =========
     for pool in POOLS:
-        # F: cache'teki mean/std/max bloklarindan kacinin kullanilacagini belirler.
+        # F: cache'teki mean/std/max bloklarından kaçının kullanılacağını belirler.
+        # Öznitelikler bir kez yüklenir; içteki P ve K döngüleri aynı matrisi paylaşır.
         Xtr, ytr = load_pooled(train_df, pool, cache_dir=cache_dir)
         Xva, yva = load_pooled(val_df, pool, cache_dir=cache_dir)
         if len(Xtr) == 0 or len(Xva) == 0:
             log.warning("[%s/%s] missing features — did extraction finish?", corpus, pool)
             continue
-        # KNN uzakliga dayali oldugu icin boyutlari train istatistigiyle ayni olcege getir.
+        # KNN uzaklığa dayalı olduğu için her boyut train istatistiğiyle aynı
+        # ölçeğe getirilir (ortalama 0, varyans 1). Scaler yalnızca train'e fit
+        # edilir; validation aynı dönüşümle yalnızca transform edilir.
         scaler = StandardScaler().fit(Xtr)
         Xtr_s, Xva_s = scaler.transform(Xtr), scaler.transform(Xva)
 
         for pdim in PCA_DIMS:
-            # P: PCA yok veya 32/64/128/256 cikti boyutundan biri.
+            # P: PCA yok (0) veya 32/64/128/256 çıktı boyutundan biri.
             pca = _fit_pca(Xtr_s, pdim)
             Xtr_p = Xtr_s if pca is None else pca.transform(Xtr_s)
             Xva_p = Xva_s if pca is None else pca.transform(Xva_s)
-            eff_dim = Xtr_p.shape[1]
+            eff_dim = Xtr_p.shape[1]  # fiilen kullanılan boyut (kısıtlanmış olabilir)
             for k in KS:
-                # K: tahminde esit oy kullanacak en yakin komsu sayisi.
+                # K: tahminde eşit oy kullanacak en yakın komşu sayısı.
+                # Küçük K = esnek ama gürültüye duyarlı; büyük K = kararlı ama detay kaçırır.
                 if k > len(Xtr_p):
-                    continue
+                    continue  # komşu sayısı örnek sayısını aşamaz (uç durum koruması)
                 knn = KNeighborsClassifier(n_neighbors=k)
-                knn.fit(Xtr_p, ytr)
+                knn.fit(Xtr_p, ytr)  # KNN'de "fit" yalnızca veriyi saklamaktır (tembel öğrenici)
                 m = compute_metrics(yva, knn.predict(Xva_p))
                 row = {"feature": pool, "feature_dim": POOL_DIM[pool],
                        "pca_dim": ("none" if pdim == 0 else eff_dim), "K": k,
                        "val_accuracy": round(m["accuracy"], 4),
                        "val_macro_f1": round(m["macro_f1"], 4)}
                 grid_rows.append(row)
-                # Teste bakmadan, yalniz validation macro-F1 ile model secilir.
+                # Teste bakmadan, yalnızca validation makro-F1 ile model seçilir.
+                # Makro-F1 tercih edildi çünkü az örnekli sınıflara da eşit önem verir.
                 if best is None or m["macro_f1"] > best[0]:
                     best = (m["macro_f1"], {"feature": pool, "pca_dim": pdim, "K": k})
 
+    # Tüm arama sonuçları incelenebilsin diye CSV olarak kaydedilir.
     grid = pd.DataFrame(grid_rows)
     grid.to_csv(out_dir / "validation_grid.csv", index=False)
 
-    # Secimden sonra validation final egitime katilir. Scaler, PCA ve KNN
-    # train+val uzerinde bastan fit edilir; test yalnizca transform ve tahmin gorur.
+    # ================= 2. AŞAMA: FİNAL EĞİTİM + TEK SEFERLİK TEST ===========
+    # Seçim bittiği için validation verisi artık final eğitime katılabilir (daha
+    # çok veri = genelde daha iyi model). Scaler, PCA ve KNN train+val üzerinde
+    # BAŞTAN fit edilir; test yalnızca transform ve tahmin görür — asla fit değil.
     bf = best[1]
     fit_df = pd.concat([train_df, val_df], ignore_index=True)
     Xfit, yfit = load_pooled(fit_df, bf["feature"], cache_dir=cache_dir)
@@ -135,6 +164,7 @@ def run_dataset(corpus: str, manifest: str, cache_dir: str, out_root: str) -> di
     knn = KNeighborsClassifier(n_neighbors=bf["K"]).fit(Xfit_p, yfit)
     test_m = compute_metrics(yte, knn.predict(Xte_p))
 
+    # ---- Sonuçları raporlanabilir biçimde topla ve diske yaz ---------------
     best_cfg = {"feature": bf["feature"], "feature_dim": POOL_DIM[bf["feature"]],
                 "pca_dim": ("none" if bf["pca_dim"] == 0 else
                             (Xfit_p.shape[1] if pca is None else pca.n_components_)),
@@ -144,6 +174,7 @@ def run_dataset(corpus: str, manifest: str, cache_dir: str, out_root: str) -> di
                        ("accuracy", "balanced_accuracy", "macro_f1", "weighted_f1")},
               "test_per_class": test_m["per_class"],
               "confusion_matrix": test_m["confusion_matrix"]}
+    # ensure_ascii=False: Türkçe karakterler JSON'da okunabilir kalsın.
     with open(out_dir / "result.json", "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2, ensure_ascii=False)
     plot_confusion(test_m["confusion_matrix"], out_dir / "confusion_matrix.png",
@@ -159,12 +190,17 @@ def run_all(manifest: str = "data/processed/manifest.csv",
             cache_dir: str = "odev1/cache/w2v",
             out_root: str = "odev1/outputs",
             corpora=(CORPUS_CREMAD, CORPUS_MELD)) -> dict:
-    """Corpuslari sirayla calistirip ortak test karsilastirmasi ve ozeti uretir."""
+    """Corpus'ları sırayla çalıştırıp ortak test karşılaştırması ve özet dosyaları üretir.
+
+    Her corpus kendi çıktısını `outputs/<corpus>/` altına yazar; bu fonksiyon
+    ek olarak iki corpus'u yan yana koyan karşılaştırma tablosunu, genel en iyi
+    modelin karmaşıklık matrisini ve `summary.json` özetini üretir.
+    """
     results = {}
     for corpus in corpora:
         results[corpus] = run_dataset(corpus, manifest, cache_dir, out_root)
 
-    # ---- test comparison table + overall best confusion matrix ----------------
+    # ---- Test karşılaştırma tablosu + genel en iyi karmaşıklık matrisi -------
     out_root = ensure_dir(out_root)
     comp = pd.DataFrame([{
         "Veri seti": c, "Öznitelik": r["best_config"]["feature"],
@@ -174,6 +210,7 @@ def run_all(manifest: str = "data/processed/manifest.csv",
     } for c, r in results.items()])
     comp.to_csv(Path(out_root) / "test_comparison.csv", index=False)
 
+    # Genel en iyi corpus, test makro-F1'e göre belirlenir (sınıf dengesine duyarlı ölçüt).
     overall = max(results.values(), key=lambda r: r["test"]["macro_f1"])
     plot_confusion(overall["confusion_matrix"], Path(out_root) / "overall_best_confusion.png",
                    title=f"Genel en iyi: {overall['corpus']} (test)")

@@ -1,4 +1,16 @@
-'''Validation-only comparison of fixed-size Mel time representations.'''
+'''Sabit boyutlu Mel zaman temsillerinin YALNIZCA doğrulama üzerinde karşılaştırılması.
+
+"Ablasyon" (ablation) çalışması, bir sistemin bileşenlerini tek tek
+değiştirip/etkisizleştirip performansa etkisini ölçmek demektir. Burada
+model mimarisini SABİT tutup ÖZNİTELİK tarafını değiştiriyoruz: kaç mel
+bandı, kaç zaman karesi, hangi zaman-sabitleme stratejisi (crop_pad mı
+resize mı) daha iyi çalışıyor?
+
+En kritik protokol kuralı: test kümesine ait ses dosyaları bu deneyde HİÇ
+YÜKLENMEZ. Bütün karşılaştırma eğitim + doğrulama katmanlarında yapılır;
+böylece öznitelik seçimi test kümesine "bakmış" olmaz ve nihai test skoru
+tarafsız kalır. (Çıktıdaki test_features_loaded=False alanı bunu belgeler.)
+'''
 
 from __future__ import annotations
 
@@ -13,6 +25,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+# Depo kökünü import yoluna ekle; dosya doğrudan çalıştırıldığında da
+# odev3/ ve ser/ paketleri bulunabilsin.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from odev3.dataset import FeatureStandardizer, load_feature_matrix
@@ -24,6 +38,10 @@ from ser.constants import NUM_CLASSES
 from ser.utils import ensure_dir, get_device
 
 
+# Her korpus için SABİT referans model: ana hiperparametre aramasının o
+# korpustaki kazananı. Modeli sabitlemek şart — aynı anda hem model hem
+# öznitelik değişseydi hangi farkın neden kaynaklandığı anlaşılamazdı
+# (kontrollü deney ilkesi: tek seferde tek değişken).
 REFERENCE_MODELS = {
     'cremad': MLPConfig(
         batch_size=64,
@@ -49,7 +67,13 @@ REFERENCE_MODELS = {
 
 
 def feature_candidates() -> tuple[MelSpecConfig, ...]:
-    '''Compare time handling and frequency resolution in controlled pairs.'''
+    '''Zaman işleme ve frekans çözünürlüğünü kontrollü çiftler halinde karşılaştırır.
+
+    Adaylar bilinçli olarak ÇİFTLER halinde kurulur: her (n_mels, n_frames)
+    kombinasyonu hem crop_pad hem resize stratejisiyle denenir. Böylece
+    "strateji farkı" her çözünürlükte ayrı ayrı gözlemlenebilir. Toplam
+    8 aday: 2 kare sayısı x 2 strateji + 2 ek mel çözünürlüğü x 2 strateji.
+    '''
 
     return (
         MelSpecConfig(n_frames=64, frame_strategy='crop_pad'),
@@ -64,6 +88,10 @@ def feature_candidates() -> tuple[MelSpecConfig, ...]:
 
 
 def _normalized_model_config(payload: Any) -> str | None:
+    # Model konfigürasyonunu karşılaştırılabilir tek biçimli JSON metnine
+    # çevirir. CSV'den okunan değer string, bellekteki değer sözlük olabilir;
+    # ikisini de aynı kanonik biçime (sıralı anahtarlar, boşluksuz) indirger.
+    # Çözümlemesi mümkün olmayan değerler None döner ve eşleşme sayılmaz.
     try:
         data = json.loads(payload) if isinstance(payload, str) else payload
         return json.dumps(data, sort_keys=True, separators=(',', ':'))
@@ -76,6 +104,10 @@ def _completed_keys(
     max_epochs: int,
     model_config: MLPConfig,
 ) -> set[str]:
+    # Devam etme (resume) mantığının kalbi: yarım kalan CSV'deki satırlardan,
+    # ŞU ANKİ ayarlarla (aynı seed, aynı epoch limiti, aynı referans model)
+    # üretilmiş olanların öznitelik parmak izlerini toplar. Ayarlar farklıysa
+    # eski satır "tamamlanmış" sayılmaz — bayat sonuç yeniden üretilir.
     expected_model = _normalized_model_config(model_config.to_dict())
     return {
         str(row['feature_fingerprint'])
@@ -86,6 +118,9 @@ def _completed_keys(
 
 
 def _load_partial(path: Path) -> list[dict[str, Any]]:
+    # Önceki (yarıda kesilmiş) çalıştırmanın ara CSV'sini okur; dosya yoksa
+    # sıfırdan başlanır. Bu sayede uzun süren ablasyon, elektrik kesintisi
+    # gibi durumlarda kaldığı yerden devam edebilir.
     if not path.is_file():
         return []
     return pd.read_csv(path).to_dict(orient='records')
@@ -102,13 +137,20 @@ def run_corpus_ablation(
     feature_workers: int = 1,
     loader_workers: int = 0,
 ) -> list[dict[str, Any]]:
-    '''Train matched feature candidates using only train and validation folds.'''
+    '''Eşleştirilmiş öznitelik adaylarını yalnızca eğitim ve doğrulama katmanlarıyla eğitir.
+
+    Tek korpus için akış: her öznitelik adayında (1) öznitelik matrislerini
+    yükle/önbellekten getir, (2) eğitim istatistikleriyle standardize et,
+    (3) sabit referans modeli erken durdurmayla eğit, (4) doğrulama
+    skorlarını CSV'ye ekle. Sonunda adaylar macro-F1'e göre sıralanır.
+    '''
 
     if corpus not in REFERENCE_MODELS:
         raise ValueError(f'Unsupported corpus: {corpus!r}.')
     if max_epochs <= 0:
         raise ValueError(f'max_epochs must be positive, got {max_epochs}.')
 
+    # --- Kurulum: cihaz, çıktı klasörleri, devam durumu, veri bölmeleri ---
     device = get_device(device_name)
     corpus_dir = ensure_dir(Path(output_root) / corpus)
     history_dir = ensure_dir(corpus_dir / 'histories')
@@ -116,6 +158,8 @@ def run_corpus_ablation(
     model_config = REFERENCE_MODELS[corpus]
     rows = _load_partial(partial_path)
     completed = _completed_keys(rows, max_epochs, model_config)
+    # _splits_for testi de döndürür ama burada değişken adı bilerek
+    # _held_out_test_frame: test SADECE alınır, asla kullanılıp yüklenmez.
     train_frame, validation_frame, _held_out_test_frame = _splits_for(
         corpus,
         manifest_path,
@@ -124,6 +168,7 @@ def run_corpus_ablation(
     total_trials = len(candidates)
 
     for trial, feature_config in enumerate(candidates, start=1):
+        # Daha önce tamamlanmış aday: eğitimi atla, sadece bilgi ver.
         if feature_config.fingerprint in completed:
             print(
                 f'{corpus}: feature trial {trial}/{total_trials} already complete '
@@ -139,6 +184,8 @@ def run_corpus_ablation(
         )
         started = time.perf_counter()
         cache_dir = Path(cache_root) / corpus
+        # Öznitelikleri yükle: cache varsa hızlı, yoksa çıkarılıp cache'lenir.
+        # Her aday farklı fingerprint'e sahip olduğundan cache'ler karışmaz.
         train_features, train_labels = load_feature_matrix(
             train_frame,
             cache_dir,
@@ -153,6 +200,8 @@ def run_corpus_ablation(
             workers=feature_workers,
             description=f'{corpus} ablation validation {trial}',
         )
+        # Standardizasyon SADECE eğitim istatistikleriyle öğrenilir; doğrulama
+        # yalnızca transform edilir (veri sızıntısını önleme kuralı).
         standardizer = FeatureStandardizer.fit(train_features)
         train_features = standardizer.transform(train_features)
         validation_features = standardizer.transform(validation_features)
@@ -172,6 +221,8 @@ def run_corpus_ablation(
         )
         elapsed = time.perf_counter() - started
         metrics = outcome.validation_metrics
+        # Sonuç satırı: adayın kimliği + eğitim özeti + doğrulama skorları.
+        # test_features_loaded=False, protokolün kanıtı olarak açıkça yazılır.
         row = {
             'corpus': corpus,
             'trial': trial,
@@ -196,18 +247,26 @@ def run_corpus_ablation(
         }
         rows.append(row)
         completed.add(feature_config.fingerprint)
+        # Her denemenin epoch-epoch öğrenme geçmişi ayrı dosyaya yazılır
+        # (öğrenme eğrisi çizimleri için).
         pd.DataFrame(outcome.history).to_csv(
             history_dir / f'trial_{trial:02d}_{feature_config.fingerprint}.csv',
             index=False,
         )
+        # Ara CSV her denemeden sonra güncellenir: çalışma kesilirse bir
+        # sonraki başlatma tam bu noktadan devam eder.
         pd.DataFrame(rows).to_csv(partial_path, index=False)
         print(
             f'{corpus}: trial {trial} validation macro-F1='
             f'{metrics["macro_f1"]:.4f}'
         )
 
+        # Büyük matrisleri ve modeli açıkça bırak: bir sonraki adayın
+        # öznitelikleri yüklenirken bellek tepe noktasını düşürür.
         del train_features, validation_features, outcome
 
+    # Nihai tablo: macro-F1'e göre azalan sıralama; eşitlikte dengeli doğruluk
+    # (yüksek iyi) ve doğrulama kaybı (düşük iyi) beraberliği bozar.
     ranked = pd.DataFrame(rows).sort_values(
         ['val_macro_f1', 'val_balanced_accuracy', 'val_loss'],
         ascending=[False, False, True],
@@ -228,6 +287,9 @@ def run_feature_ablation(
     feature_workers: int = 1,
     loader_workers: int = 0,
 ) -> dict[str, list[dict[str, Any]]]:
+    # Tüm korpuslar için ablasyonu çalıştırıp tek bir summary.json üreten
+    # çatı fonksiyon. Özet dosyasına protokol beyanı, seed, referans modeller
+    # ve tüm aday tanımları yazılır — rapor bu dosyadan beslenir.
     results = {
         corpus: run_corpus_ablation(
             corpus,
@@ -260,6 +322,7 @@ def run_feature_ablation(
 
 
 def main() -> None:
+    # Bağımsız CLI: ablasyon, ana deneyden ayrı olarak da çalıştırılabilir.
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         '--corpora',

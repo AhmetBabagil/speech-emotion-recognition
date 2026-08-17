@@ -1,11 +1,18 @@
-'''Improvement stage: augmentation / attention variants of each winner.
+'''Geliştirme aşaması: kazananların artırma / dikkat varyantlarını dener.
 
-Reads the winners produced by run_experiment.py, retrains them with the
-literature-motivated improvements (SpecAugment masking for the CNN; attention
-pooling and feature noise for the RNN), compares on the validation fold and
-evaluates the best improved variant on the test fold.
+Yönergenin 5. bölümü "hiperparametre optimizasyonundan SONRA performans
+iyileştirmek için geliştirmeler yapın" der. Bu betik tam olarak onu yapar:
 
-Examples:
+1. run_experiment.py'nin ürettiği kazananları (winner.json) okur.
+2. Literatürün önerdiği geliştirmelerle yeniden eğitir:
+   - CNN  : SpecAugment maskeleme (2 şiddet)
+   - RNN  : dikkat havuzlama, öznitelik gürültüsü, ikisi birden
+3. Varyantları GEÇERLEME kümesinde tabanla karşılaştırır.
+4. Yalnızca geçerlemede kazananı geçen varyant test kümesinde değerlendirilir;
+   hiçbiri geçemezse test'e dokunulmaz (dürüst protokol) ve bu olumsuz sonuç
+   da rapora yazılır.
+
+Örnekler:
     python final/improve.py
     python final/improve.py --methods rnn --out-root final/outputs
 '''
@@ -55,6 +62,8 @@ log = get_logger(__name__)
 
 
 def _model_config_from_dict(method: str, values: dict[str, Any]):
+    '''winner.json'daki sözlükten config nesnesini geri kurar.'''
+
     values = dict(values)
     optim = OptimSettings(**values.pop('optim'))
     if method == 'cnn':
@@ -72,7 +81,8 @@ def _model_config_from_dict(method: str, values: dict[str, Any]):
 
 
 def _variants(method: str, model_cfg) -> list[dict[str, Any]]:
-    '''Named improvement candidates; transform=None means model-only change.'''
+    '''Denenecek geliştirme varyantları; transform=None demek "yalnız model
+    değişikliği, veri artırma yok" demektir.'''
 
     if method == 'cnn':
         return [
@@ -86,6 +96,7 @@ def _variants(method: str, model_cfg) -> list[dict[str, Any]]:
         {'name': 'feature_noise', 'model_cfg': model_cfg,
          'transform': FeatureNoise(std=0.1)},
     ]
+    # Kazanan zaten dikkat havuzlamalı değilse dikkatli varyantları da dene.
     if model_cfg.pooling != 'attn':
         attn_cfg = replace(model_cfg, pooling='attn')
         variants.insert(0, {'name': 'attention_pooling', 'model_cfg': attn_cfg,
@@ -108,10 +119,13 @@ def improve_method(
     amp: bool,
     seed: int,
 ) -> dict[str, Any]:
+    '''Tek yöntemin geliştirme aşamasını koşturur ve özetini döndürür.'''
+
+    # 1) Kazananı diskteki winner.json'dan oku.
     winner_path = method_dir / 'winner.json'
     if not winner_path.is_file():
         raise FileNotFoundError(
-            f'{winner_path} not found; run final/run_experiment.py first.'
+            f'{winner_path} yok; önce final/run_experiment.py çalıştırın.'
         )
     with open(winner_path, encoding='utf-8') as handle:
         winner = json.load(handle)
@@ -125,8 +139,9 @@ def improve_method(
         extract_fn = extract_interval_series
         feature_axis = 2
     base_model_cfg = _model_config_from_dict(method, winner['model_config'])
-    base_val_f1 = float(winner['val_metrics']['macro_f1'])
+    base_val_f1 = float(winner['val_metrics']['macro_f1'])   # geçilecek çıta
 
+    # 2) Kazananın öznitelikleri (önbellekten anında gelir).
     feature_cache: dict = {}
     tensors = _feature_folds(
         folds, feature_cfg, extract_fn, cache_root,
@@ -144,6 +159,7 @@ def improve_method(
             return MelCNN(NUM_CLASSES, model_cfg)
         return SeqRNN(feature_cfg.feature_dim, NUM_CLASSES, model_cfg)
 
+    # 3) Her varyantı eğit ve geçerlemede tabanla kıyasla.
     rows: list[dict[str, Any]] = []
     best: dict[str, Any] | None = None
     for variant in _variants(method, base_model_cfg):
@@ -161,7 +177,7 @@ def improve_method(
             seed=seed,
             num_workers=loader_workers,
             amp=amp,
-            train_transform=variant['transform'],
+            train_transform=variant['transform'],   # artırma SADECE eğitimde
         )
         seconds = time.perf_counter() - started
         row = {
@@ -182,6 +198,7 @@ def improve_method(
         if best is None or row['val_macro_f1'] > best['row']['val_macro_f1']:
             best = {'row': row, 'variant': variant, 'outcome': outcome}
 
+    # 4) Varyant tablosunu diske yaz.
     improvements = pd.DataFrame(rows)
     improvements.insert(0, 'method', method)
     improvements.to_csv(method_dir / 'improvements.csv', index=False)
@@ -192,6 +209,7 @@ def improve_method(
         'variants': rows,
         'improved_on_validation': bool(best and best['row']['delta_vs_winner'] > 0),
     }
+    # 5) Test disiplini: yalnızca geçerlemede tabanı GEÇEN varyant teste gider.
     if best and best['row']['delta_vs_winner'] > 0:
         class_weights = inverse_frequency_weights(
             folds['train']['label_idx'].to_numpy(), NUM_CLASSES
@@ -253,10 +271,12 @@ def main() -> None:
     parser.add_argument(
         '--limit-per-split',
         type=int,
-        help='Diagnostic only: stratified row limit for every fold.',
+        help='YALNIZ TANI: her katmanı oransal olarak bu satır sayısına indir.',
     )
     args = parser.parse_args()
 
+    # Bölme, ana deneyle AYNI ayarlarla (aynı seed) yeniden kurulur;
+    # deterministik olduğu için katmanlar birebir aynı çıkar.
     manifest = pd.read_csv(args.manifest)
     settings = SplitSettings(train_corpora=(args.corpus,), eval_corpora=(args.corpus,))
     train_df, val_df, test_df = prepare_splits(manifest, settings, seed=args.seed)

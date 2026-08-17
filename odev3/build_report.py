@@ -1,4 +1,23 @@
-'''Build Google-Docs-ready HTML and DOCX reports from real experiment outputs.'''
+'''Gerçek deney çıktılarından Google-Docs'a hazır HTML ve DOCX raporları üretir.
+
+Bu modülün en önemli tasarım ilkesi: rapordaki HİÇBİR sayı elle yazılmaz.
+Tüm tablolar ve bulgu cümleleri, deneylerin diske yazdığı gerçek dosyalardan
+(result.json, validation_results.csv, feature_stability.csv vb.) okunarak
+kurulur. Böylece kod yeniden çalıştırıldığında rapor otomatik olarak güncel
+ve sonuçlarla tutarlı kalır; "raporda yazan sayı ile CSV'deki sayı farklı"
+türü hatalar yapısal olarak imkansızlaşır.
+
+Mimari iki katmanlıdır:
+1. **İçerik katmanı**: ``_access_blocks``, ``_method_blocks`` gibi fonksiyonlar
+   raporun bölümlerini, biçimden bağımsız küçük "blok" nesneleri (Heading,
+   Paragraph, TableBlock, ImageBlock...) olarak üretir.
+2. **Çizim katmanı**: ``_render_html`` ve ``_render_docx`` AYNI blok listesini
+   alır ve iki farklı formata çevirir. İçerik tek kez tanımlanır, iki çıktı
+   asla birbirinden sapamaz.
+
+Not: Bu dosyadaki Türkçe metin sabitleri (paragraflar, tablo başlıkları)
+raporun KENDİSİDİR, yani çalışma zamanı çıktısıdır — açıklama yorumu değildir.
+'''
 
 from __future__ import annotations
 
@@ -13,6 +32,10 @@ from typing import Any, Iterable
 import pandas as pd
 
 
+# ---------------------------------------------------------------------------
+# Rapor genelinde kullanılan sabitler: korpus/duygu gösterim adları ve teslim
+# bağlantıları. Sözlük DEĞERLERİ rapora aynen basılır (çalışma zamanı metni).
+# ---------------------------------------------------------------------------
 DISPLAY = {'cremad': 'CREMA-D', 'meld': 'MELD'}
 EMOTIONS = ('angry', 'disgust', 'fear', 'happy', 'neutral', 'sad')
 EMOTION_DISPLAY = {
@@ -41,40 +64,60 @@ DATASET_LINKS = (
 
 @dataclass(frozen=True)
 class ReportPaths:
-    '''Files created for one diagnostic or final report build.'''
+    '''Tek bir tanısal ya da nihai rapor derlemesinde oluşturulan dosyalar.'''
 
     html: Path
     docx: Path
 
 
+# ---------------------------------------------------------------------------
+# Rapor "blok" tipleri: içerik ile biçimi ayıran küçük, değişmez veri
+# sınıfları. Bölüm fonksiyonları bu bloklardan liste üretir; _render_html ve
+# _render_docx aynı listeyi kendi formatlarına çevirir. Yeni bir blok tipi
+# eklemek = hem iki render fonksiyonuna birer dal eklemek demektir.
+# ---------------------------------------------------------------------------
+
+
 @dataclass(frozen=True)
 class Heading:
+    '''Bölüm başlığı; level=1 ana başlık, 2-3 alt başlıklar.'''
+
     level: int
     text: str
 
 
 @dataclass(frozen=True)
 class Paragraph:
+    '''Düz metin paragrafı.'''
+
     text: str
 
 
 @dataclass(frozen=True)
 class Notice:
+    '''Dikkat çekmesi gereken uyarı kutusu (örn. "bu tanısal rapordur").'''
+
     text: str
 
 
 @dataclass(frozen=True)
 class BulletList:
+    '''Madde imli liste.'''
+
     items: tuple[str, ...]
 
 
 @dataclass(frozen=True)
 class LinkList:
+    '''(etiket, url) çiftlerinden oluşan bağlantı listesi.'''
+
     items: tuple[tuple[str, str], ...]
 
 
 @dataclass(frozen=True)
 class TableBlock:
+    '''Başlıklar + satırlar + isteğe bağlı tablo altyazısından oluşan tablo.'''
+
     headers: tuple[str, ...]
     rows: tuple[tuple[Any, ...], ...]
     caption: str | None = None
@@ -82,19 +125,31 @@ class TableBlock:
 
 @dataclass(frozen=True)
 class ImageBlock:
+    '''Diskteki bir PNG'yi altyazısıyla rapora gömen görsel bloğu.'''
+
     path: Path
     alt_text: str
     caption: str
 
 
+# Tüm blok tiplerinin birleşimi (union) — render fonksiyonlarının kabul
+# ettiği tip. Python 3.10+ '|' sözdizimiyle yazılmış bir tip takma adıdır.
 ReportBlock = Heading | Paragraph | Notice | BulletList | LinkList | TableBlock | ImageBlock
 
 
 def _read_json(path: str | Path) -> dict[str, Any]:
+    # Deney çıktısı JSON dosyalarını UTF-8 ile okuyan kısa yardımcı.
     return json.loads(Path(path).read_text(encoding='utf-8'))
 
 
 def _cell(value: Any) -> str:
+    # Herhangi bir Python değerini tablo hücresi metnine çevirir; tüm
+    # tablolarda tek biçimlilik bu fonksiyondan gelir:
+    # - bool -> 'Evet'/'Hayır' (numpy bool_ tip adı üzerinden yakalanır,
+    #   çünkü isinstance importsuz numpy tipini göremez),
+    # - float -> 4 ondalık basamak,
+    # - None/NaN -> '-',
+    # - geri kalan her şey -> str().
     if isinstance(value, bool) or type(value).__name__ == 'bool_':
         return 'Evet' if value else 'Hayır'
     if isinstance(value, float):
@@ -105,6 +160,9 @@ def _cell(value: Any) -> str:
 
 
 def _relative(target: str | Path, report_path: Path) -> str:
+    # Görsel yollarını, HTML dosyasının bulunduğu klasöre GÖRE göreli yapar.
+    # Mutlak yol kullansaydık rapor başka bilgisayara taşındığında görseller
+    # kırılırdı. as_posix() Windows'un '\\' ayracını web uyumlu '/'e çevirir.
     return Path(os.path.relpath(Path(target), report_path.parent)).as_posix()
 
 
@@ -113,6 +171,9 @@ def _html_table(
     rows: Iterable[Iterable[Any]],
     caption: str | None = None,
 ) -> str:
+    # TableBlock'u HTML <table> etiketine çevirir. Her hücre escape()'ten
+    # geçirilir: verideki '<', '&' gibi karakterler HTML olarak yorumlanmaz,
+    # düz metin olarak görünür (XSS/bozuk sayfa koruması).
     head = ''.join(f'<th>{escape(str(header))}</th>' for header in headers)
     body = []
     for row in rows:
@@ -126,11 +187,18 @@ def _html_table(
 
 
 def _render_html(blocks: Iterable[ReportBlock], path: Path, title: str) -> Path:
-    '''Render report blocks as a standalone UTF-8 HTML document.'''
+    '''Rapor bloklarını tek başına yeterli (standalone) UTF-8 HTML belgesi olarak çizer.
+
+    "Standalone" demek: CSS gömülü, dış dosya bağımlılığı yalnızca görseller.
+    Fonksiyon blokları sırayla gezer ve her tip için ilgili HTML parçasını
+    üretir; tanımadığı bir blok tipi görürse sessizce atlamak yerine
+    TypeError fırlatır (yeni tip eklenirse burası unutulmasın diye).
+    '''
 
     body: list[str] = []
     for block in blocks:
         if isinstance(block, Heading):
+            # Başlık seviyesini [1, 4] aralığına kıstır: h5/h6 üretme.
             level = min(max(block.level, 1), 4)
             body.append(f'<h{level}>{escape(block.text)}</h{level}>')
         elif isinstance(block, Paragraph):
@@ -150,6 +218,10 @@ def _render_html(blocks: Iterable[ReportBlock], path: Path, title: str) -> Path:
         elif isinstance(block, TableBlock):
             body.append(_html_table(block.headers, block.rows, block.caption))
         elif isinstance(block, ImageBlock):
+            # Görsel diskte varsa göreli yolla <figure> olarak göm; yoksa
+            # raporda kırmızı "Eksik görsel" kutusu göster. Testler nihai
+            # raporda hiç 'missing' sınıfı kalmadığını doğrular — yani eksik
+            # görsel varsa fark edilir, sessizce yutulmaz.
             if block.path.is_file():
                 source = escape(_relative(block.path, path), quote=True)
                 body.append(
@@ -165,6 +237,9 @@ def _render_html(blocks: Iterable[ReportBlock], path: Path, title: str) -> Path:
         else:
             raise TypeError(f'Unsupported report block: {type(block).__name__}')
 
+    # Gömülü stil sayfası: A4 baskı ayarı, tablo/başlık renkleri, uyarı
+    # kutusu görünümü. Rapor Google Docs'a yapıştırıldığında da bu stiller
+    # makul bir görünüm sağlar.
     stylesheet = '''
         @page { size: A4; margin: 18mm; }
         body { font-family: Arial, sans-serif; line-height: 1.5; color: #172033;
@@ -198,6 +273,9 @@ def _render_html(blocks: Iterable[ReportBlock], path: Path, title: str) -> Path:
 
 
 def _set_docx_cell_font(cell, size: float) -> None:
+    # python-docx'te hücre yazı tipi doğrudan ayarlanamaz; hücrenin içindeki
+    # her paragrafın her "run"ına tek tek uygulamak gerekir. Bu tekrarlanan
+    # işi tek yardımcıda topluyoruz.
     from docx.shared import Pt
 
     for paragraph in cell.paragraphs:
@@ -207,13 +285,21 @@ def _set_docx_cell_font(cell, size: float) -> None:
 
 
 def _render_docx(blocks: Iterable[ReportBlock], path: Path, title: str) -> Path:
-    '''Render the same report blocks as a self-contained Word document.'''
+    '''Aynı rapor bloklarını kendine yeterli bir Word belgesi olarak çizer.
+
+    _render_html ile AYNI blok listesini alır; içerik farkı oluşması bu
+    tasarımla imkansızdır. python-docx importları fonksiyon içindedir:
+    yalnızca DOCX üretilirken yüklenir, modülün kendisi docx kurulu olmadan
+    da import edilebilir.
+    '''
 
     from docx import Document
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     from docx.shared import Inches, Pt, RGBColor
 
     document = Document()
+    # Belge üst verileri, sayfa kenar boşlukları ve stil tanımları: HTML'deki
+    # stylesheet'in Word karşılığı. Tüm yazı tipleri Arial'e sabitlenir.
     document.core_properties.title = title
     document.core_properties.author = 'Ahmet Babagil'
     section = document.sections[0]
@@ -234,6 +320,9 @@ def _render_docx(blocks: Iterable[ReportBlock], path: Path, title: str) -> Path:
 
     for block in blocks:
         if isinstance(block, Heading):
+            # Belgenin en başındaki 1. seviye başlık Word'ün 'Title' stilini
+            # (level=0) alır; sonraki başlıklar bir seviye kaydırılarak
+            # Heading 1-3 aralığına oturtulur.
             if block.level == 1 and not document.paragraphs:
                 document.add_heading(block.text, level=0)
             else:
@@ -253,6 +342,10 @@ def _render_docx(blocks: Iterable[ReportBlock], path: Path, title: str) -> Path:
             for label, url in block.items:
                 document.add_paragraph(f'{label}: {url}', style='List Bullet')
         elif isinstance(block, TableBlock):
+            # Tablo: önce (varsa) kalın altyazı, sonra başlık satırı, sonra
+            # veri satırları. Çok sütunlu (10+) tablolar sayfaya sığsın diye
+            # daha küçük punto kullanır. Satır, başlık sayısından kısaysa
+            # eksik hücreler '-' ile doldurulur (_cell(None) => '-').
             if block.caption:
                 caption = document.add_paragraph()
                 caption_run = caption.add_run(block.caption)
@@ -271,8 +364,12 @@ def _render_docx(blocks: Iterable[ReportBlock], path: Path, title: str) -> Path:
                 for index in range(len(block.headers)):
                     cells[index].text = _cell(row[index] if index < len(row) else None)
                     _set_docx_cell_font(cells[index], font_size)
+            # Tablodan sonra boş paragraf: tabloların birbirine yapışmasını önler.
             document.add_paragraph()
         elif isinstance(block, ImageBlock):
+            # Görsel: Word'e sabit genişlikte (6.1 inç), ortalanmış olarak
+            # gömülür; altına italik ve küçük puntolu altyazı eklenir.
+            # HTML'nin aksine dosya belgeye KOPYALANIR, göreli yol gerekmez.
             if block.path.is_file():
                 paragraph = document.add_paragraph()
                 paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -298,6 +395,10 @@ def _report_paths(
     html_path: str | Path | None,
     docx_path: str | Path | None,
 ) -> ReportPaths:
+    # Çıktı dosyalarının adlarını belirler. Tanısal (quick/limitli) koşuların
+    # raporu bilerek FARKLI adla ve deney klasörünün içine yazılır; böylece
+    # duman testi raporu, teslim edilecek nihai raporun üzerine yazamaz.
+    # Kullanıcı özel yol verdiyse o yol kazanır.
     if diagnostic:
         default_html = output_root / 'RAPOR_DIAGNOSTIK.html'
         default_docx = output_root / 'RAPOR_DIAGNOSTIK.docx'
@@ -311,6 +412,8 @@ def _report_paths(
 
 
 def _stage_name(value: str) -> str:
+    # CSV'deki İngilizce aşama kodlarını rapor tablolarındaki Türkçe
+    # karşılıklarına çevirir; bilinmeyen kod olduğu gibi bırakılır.
     return {
         'screening': 'Tarama',
         'refinement': 'İyileştirme',
@@ -321,12 +424,18 @@ def _stage_name(value: str) -> str:
 
 
 def _hidden_columns(value: Any) -> tuple[str, str, str]:
+    # '512-256' gibi kaydedilmiş gizli katman metnini tablo için üç ayrı
+    # sütuna (H1, H2, H3) böler; eksik katmanlar '-' ile doldurulur.
+    # Örn. '256' -> ('256', '-', '-'); '512-256-128' -> üçü de dolu.
     sizes = str(value).split('-') if value is not None else []
     padded = (sizes + ['-', '-', '-'])[:3]
     return padded[0], padded[1], padded[2]
 
 
 def _unique_text(frame: pd.DataFrame, column: str) -> str:
+    # Bir sütunda GERÇEKTEN denenen benzersiz değerleri tek metin halinde
+    # listeler ('32, 64, 128' gibi). Önce sayısal sıralama denenir; sütun
+    # sayıya çevrilemiyorsa (örn. aktivasyon adları) alfabetik sıralanır.
     values = frame[column].dropna().tolist()
     try:
         values = sorted(set(values), key=float)
@@ -336,6 +445,9 @@ def _unique_text(frame: pd.DataFrame, column: str) -> str:
 
 
 def _artifact_status(path: Path) -> str:
+    # Çıktı dosyasının durum hücresi: dosya var mı, boyutu ne? Rapor
+    # "üretilen dosyalar" tablosunda her dosyanın gerçekten var olduğunu
+    # böylece belgeleriz. 0.1 MB altındaki dosyalar KB olarak gösterilir.
     if not path.is_file():
         return 'Yerel dosya bulunamadı'
     size_mb = path.stat().st_size / (1024 * 1024)
@@ -347,6 +459,10 @@ def _artifact_status(path: Path) -> str:
 def _load_report_inputs(
     output_root: Path,
 ) -> tuple[dict[str, Any], dict[str, dict[str, Any]], dict[str, pd.DataFrame]]:
+    # Raporun ZORUNLU girdilerini yükler: genel summary.json + her korpusun
+    # result.json ve validation_results.csv dosyaları. Eksik dosya varsa
+    # anlaşılır bir hata ile durur — yarım veriden yarım rapor üretmek
+    # yerine sorunu açıkça bildirmek tercih edilir.
     summary_path = output_root / 'summary.json'
     if not summary_path.is_file():
         raise FileNotFoundError(f'Deney özeti bulunamadı: {summary_path}')
@@ -371,7 +487,17 @@ def _load_report_inputs(
     return summary, results, validations
 
 
+# ===========================================================================
+# BÖLÜM ÜRETİCİLERİ
+# Aşağıdaki _*_blocks ve _*_rows fonksiyonları raporun bölümlerini sırayla
+# kurar. İçlerindeki Türkçe metinler raporun kendisidir (çalışma zamanı
+# çıktısı); sayısal değerlerin tamamı deney dosyalarından okunur.
+# ===========================================================================
+
+
 def _access_blocks() -> list[ReportBlock]:
+    # 'Erişim Bilgileri' bölümü: proje kimliği, Drive/GitHub bağlantıları ve
+    # veri kümesi kaynak linkleri. Tamamen sabit içeriktir.
     return [
         Heading(2, 'Erişim Bilgileri'),
         TableBlock(
@@ -401,6 +527,9 @@ def _execution_blocks(
     stability_root: Path,
     effect_root: Path,
 ) -> list[ReportBlock]:
+    # 'Çalıştırılacak Dosyalar' bölümü: her kaynak dosyanın görevi, deneyleri
+    # yeniden üretecek komutlar ve üretilen çıktıların durum tablosu.
+    # files demeti (dosya, görev açıklaması) çiftleridir — rapora aynen basılır.
     files = (
         ('odev3/run_experiment.py', 'Tüm veri kümesi için tarama, yerel iyileştirme, çoklu seed doğrulaması ve tek seferlik test değerlendirmesini çalıştırır.'),
         ('odev3/features_melspec.py', 'Sesi 16 kHz mono yükler; log-Mel spektrogramı sabit boyuta getirip 4096 elemanlı vektöre dönüştürür.'),
@@ -416,6 +545,9 @@ def _execution_blocks(
         ('odev3/pipeline.py', 'Speaker-independent bölmeleri, resume durumunu, model kaydını, tahminleri, belirsizliği ve validation-temelli kalibrasyonu yönetir.'),
         ('odev3/build_report.py', 'Gerçek deney çıktılarından bu HTML ve DOCX raporlarını üretir.'),
     )
+    # Çıktı durum tablosu: üç kaynaktan (ana deney, hiperparametre etkileri,
+    # özellik kararlılığı) beklenen her dosya için varlık/boyut durumu
+    # (_artifact_status) toplanır.
     artifact_rows = []
     for corpus in results:
         corpus_dir = output_root / corpus
@@ -487,6 +619,9 @@ def _execution_blocks(
 
 
 def _dataset_blocks(results: dict[str, dict[str, Any]]) -> list[ReportBlock]:
+    # 'Veri Seti' bölümü: bölme tabloları (kayıt/konuşmacı/sınıf sayıları),
+    # sınıf ağırlıkları tablosu ve metrik tanımları. Sayılar result.json'daki
+    # split özeti ile training_class_weights alanından gelir.
     split_rows = []
     weight_rows = []
     for corpus, result in results.items():
@@ -563,6 +698,10 @@ def _dataset_blocks(results: dict[str, dict[str, Any]]) -> list[ReportBlock]:
 
 
 def _ablation_rows(ablation_root: Path) -> tuple[tuple[Any, ...], ...]:
+    # Özellik ablasyonu tablosunun satırları: feature_ablation.csv'den okunur,
+    # deneme sırasına dizilir. Son sütun (rank == 1) o adayın kazanan olup
+    # olmadığını işaretler; tabloda 'Seçildi' olarak görünür. Dosya yoksa
+    # (ablasyon hiç koşulmamışsa) bölüm sessizce boş kalır.
     rows: list[tuple[Any, ...]] = []
     for corpus in ('cremad', 'meld'):
         path = ablation_root / corpus / 'feature_ablation.csv'
@@ -593,6 +732,11 @@ def _ablation_findings(
     results: dict[str, dict[str, Any]],
     stability_root: Path | None = None,
 ) -> str:
+    # Ablasyon bulgularını CÜMLE olarak üretir: her korpusun kazananı,
+    # kazananın nihai deneyde kullanılan temsille aynı olup olmadığı ve
+    # değilse aradaki tek-tohum farkı. Metodolojik dürüstlük burada kodlanır:
+    # tek tohumlu küçük bir fark, nihai modeli geriye dönük değiştirme sebebi
+    # yapılmaz; bunun yerine çok tohumlu doğrulamaya işaret edilir.
     findings: list[str] = []
     confirmation_needed = False
     for corpus, result in results.items():
@@ -631,6 +775,9 @@ def _ablation_findings(
                 )
         findings.append(sentence)
     if confirmation_needed:
+        # Kazanan ile seçilen temsil farklıysa iki durum vardır: çok tohumlu
+        # kararlılık deneyi yapıldıysa ona atıf yapılır; yapılmadıysa farkın
+        # neden nihai modele yansıtılmadığı açıkça yazılır.
         confirmation_complete = bool(
             stability_root
             and all(
@@ -657,6 +804,9 @@ def _ablation_findings(
 def _feature_stability_rows(
     stability_root: Path,
 ) -> tuple[tuple[Any, ...], ...]:
+    # Çok tohumlu kararlılık tablosunun satırları: feature_stability.csv'deki
+    # özet istatistikler okunur; 'ortalama ± std' tek hücrede birleştirilir,
+    # aday adı 'main_/challenger_' önekinden Türkçe etikete çevrilir.
     rows: list[tuple[Any, ...]] = []
     for corpus in ('cremad', 'meld'):
         path = stability_root / corpus / 'feature_stability.csv'
@@ -689,6 +839,12 @@ def _feature_stability_findings(
     stability_root: Path,
     ablation_root: Path,
 ) -> str:
+    # Kararlılık bulgularını cümle olarak üretir. İki iddia sayılarla
+    # desteklenir:
+    # 1. Ana temsil ile alternatif arasındaki üç-tohum ortalama farkı ve
+    #    eşleştirilmiş tohum kazanım sayıları.
+    # 2. Determinizm kanıtı: seed 42 ile yeniden eğitilen adayların ilk
+    #    ablasyondaki skorlarını birebir yeniden ürettiği (maks. mutlak fark).
     findings = []
     reproduced_rows = 0
     maximum_reproduction_difference = 0.0
@@ -718,6 +874,10 @@ def _feature_stability_findings(
             f'{comparison["main_wins"]} tanesinde daha yüksek macro-F1 '
             'üretmiştir.'
         )
+        # Tekrarlanabilirlik kontrolü: kararlılık deneyindeki seed-42 koşuları
+        # ile ablasyondaki orijinal koşular öznitelik parmak izi üzerinden
+        # eşleştirilir; skor farklarının mutlak maksimumu raporlanır (ideal
+        # olarak 0.0 — aynı tohum aynı sonucu üretmeli).
         original = pd.read_csv(
             ablation_root / corpus / 'feature_ablation.csv'
         )
@@ -759,10 +919,14 @@ def _method_blocks(
     ablation_root: Path,
     stability_root: Path,
 ) -> list[ReportBlock]:
+    # 'Yöntem' bölümü: Mel öznitelik açıklaması, ablasyon tablosu+bulgular,
+    # çok tohumlu doğrulama tablosu+görselleri ve nihai MLP mimarileri.
+    # Ablasyon/kararlılık dosyaları yoksa ilgili alt bölümler atlanır.
     architecture_rows = []
     for corpus, result in results.items():
         config = result['best_config']
         hidden = config['hidden_dims']
+        # Mimarinin okunur gösterimi: '4096 → 768 → 384 → 6' gibi.
         architecture = '4096 → ' + ' → '.join(str(size) for size in hidden) + ' → 6'
         architecture_rows.append(
             (
@@ -881,6 +1045,9 @@ def _method_blocks(
 def _hyperparameter_summary_rows(
     validations: dict[str, pd.DataFrame],
 ) -> tuple[tuple[Any, ...], ...]:
+    # 'Gerçekten taranan değerler' tablosu: her hiperparametre sütununda
+    # denenen benzersiz değerlerin listesi (_unique_text). Amaç, aramanın
+    # kapsamını tek satırda kanıtlamaktır.
     rows = []
     for corpus, frame in validations.items():
         rows.append(
@@ -902,6 +1069,9 @@ def _hyperparameter_summary_rows(
 
 
 def _trial_parameter_rows(frame: pd.DataFrame) -> tuple[tuple[Any, ...], ...]:
+    # Deneme-parametre tablosu: her doğrulama koşusunun TÜM hiperparametre
+    # değerleri, deneme numarasına göre sıralı. Gizli katmanlar üç ayrı
+    # sütuna açılır (_hidden_columns) ki tablo hizalı okunsun.
     rows = []
     for row in frame.sort_values('trial').itertuples(index=False):
         h1, h2, h3 = _hidden_columns(row.hidden_dims)
@@ -927,6 +1097,9 @@ def _trial_parameter_rows(frame: pd.DataFrame) -> tuple[tuple[Any, ...], ...]:
 
 
 def _trial_metric_rows(frame: pd.DataFrame) -> tuple[tuple[Any, ...], ...]:
+    # Deneme-metrik tablosu: aynı koşuların skor tarafı (kayıp, doğruluk,
+    # F1'ler, erken durma bilgisi ve 'Seçildi' bayrağı). Parametre tablosuyla
+    # deneme numarası üzerinden eşleşir.
     rows = []
     for row in frame.sort_values('trial').itertuples(index=False):
         rows.append(
@@ -949,6 +1122,10 @@ def _trial_metric_rows(frame: pd.DataFrame) -> tuple[tuple[Any, ...], ...]:
 def _hyperparameter_effect_rows(
     effect_root: Path,
 ) -> tuple[tuple[Any, ...], ...]:
+    # Hiperparametre etki tablosu: hyperparameter_effects modülünün ürettiği
+    # parameter_effect_overview.csv'den, her parametrenin en güçlü/en zayıf
+    # grubu ve aradaki fark okunur. Grup boyutu aralığı ('1–15' gibi) da
+    # gösterilir ki okuyucu az koşulu grupları temkinli yorumlasın.
     rows = []
     for corpus in ('cremad', 'meld'):
         path = effect_root / corpus / 'parameter_effect_overview.csv'
@@ -975,6 +1152,10 @@ def _hyperparameter_effect_rows(
 
 
 def _hyperparameter_effect_findings(effect_root: Path) -> tuple[str, ...]:
+    # Etki analizinin bulgu paragrafları: kullanılan konfigürasyon sayısı,
+    # her korpusta en geniş farkı gösteren parametre ve — en önemlisi —
+    # "bu betimseldir, nedensel değildir" uyarısı. Uyarının raporda her zaman
+    # yer alması metodolojik dürüstlüğün parçasıdır.
     summary_path = effect_root / 'summary.json'
     if not summary_path.is_file():
         return ()
@@ -997,6 +1178,8 @@ def _hyperparameter_effect_findings(effect_root: Path) -> tuple[str, ...]:
         if not overview_path.is_file():
             continue
         frame = pd.read_csv(overview_path)
+        # En geniş grup-ortalaması aralığına sahip parametre: skoru en çok
+        # "oynatan" değişken olarak öne çıkarılır.
         strongest = frame.loc[frame['mean_macro_f1_spread'].idxmax()]
         findings.append(
             f'{DISPLAY[corpus]} için en geniş grup-ortalaması aralığı '
@@ -1020,6 +1203,10 @@ def _stability_rows(
     results: dict[str, dict[str, Any]],
     validations: dict[str, pd.DataFrame],
 ) -> tuple[tuple[Any, ...], ...]:
+    # Kazanan KONFİGÜRASYONUN tohum duyarlılığı tablosu (özellik kararlılığı
+    # tablosundan farklı: burada model konfigi test edilir). Her tohumun
+    # tekil satırlarının ardından 'ortalama ± std' özet satırı eklenir.
+    # Satırlar validation_results.csv'den config_id eşleşmesiyle bulunur.
     rows = []
     for corpus, result in results.items():
         stability = result.get('stability')
@@ -1057,6 +1244,11 @@ def _validation_blocks(
     validations: dict[str, pd.DataFrame],
     effect_root: Path,
 ) -> list[ReportBlock]:
+    # 'Model Geçerleme' bölümü: arama protokolünün anlatımı, taranan değer
+    # özeti, her korpus için 32 koşunun parametre+metrik tabloları, betimsel
+    # etki analizi, tohum kararlılığı ve öğrenme eğrisi görselleri.
+    # table_number değişkeni tablo numaralarını korpuslar arasında kesintisiz
+    # ilerletir (Tablo 7, 8, 9, ...).
     blocks: list[ReportBlock] = [
         Heading(2, 'Model Geçerleme'),
         Paragraph(
@@ -1152,6 +1344,8 @@ def _validation_blocks(
 
 
 def _overall_test_rows(results: dict[str, dict[str, Any]]) -> tuple[tuple[Any, ...], ...]:
+    # Nihai test tablosunun satırları: korpus başına tek satırda tüm ana
+    # test metrikleri (result.json'daki 'test' alanından).
     rows = []
     for corpus, result in results.items():
         test = result['test']
@@ -1171,6 +1365,9 @@ def _overall_test_rows(results: dict[str, dict[str, Any]]) -> tuple[tuple[Any, .
 
 
 def _per_class_rows(results: dict[str, dict[str, Any]]) -> tuple[tuple[Any, ...], ...]:
+    # Sınıf bazında test tablosu: her duygu için precision/recall/F1 ve
+    # destek (o sınıfın test örneği sayısı). Duygu adları Türkçe gösterime
+    # çevrilir.
     rows = []
     for corpus, result in results.items():
         per_class = result['test']['per_class']
@@ -1192,6 +1389,8 @@ def _per_class_rows(results: dict[str, dict[str, Any]]) -> tuple[tuple[Any, ...]
 def _uncertainty_rows(
     results: dict[str, dict[str, Any]],
 ) -> tuple[tuple[Any, ...], ...]:
+    # Bootstrap güven aralığı tablosu: her metrik için nokta tahmini +
+    # alt/üst sınır + güven düzeyi (test_uncertainty alanından).
     metric_labels = (
         ('accuracy', 'Doğruluk'),
         ('balanced_accuracy', 'Dengeli doğruluk'),
@@ -1222,6 +1421,9 @@ def _uncertainty_rows(
 def _calibration_rows(
     results: dict[str, dict[str, Any]],
 ) -> tuple[tuple[Any, ...], ...]:
+    # Kalibrasyon tablosu: öğrenilen sıcaklık T ve her metriğin
+    # 'ham → ölçekli' geçişi tek hücrede ok işaretiyle gösterilir. Son sütun,
+    # sınıf kararlarının korunduğunun (True) kanıtıdır.
     rows = []
     for corpus, result in results.items():
         scaling = result.get('temperature_scaling')
@@ -1252,6 +1454,9 @@ def _calibration_rows(
 
 
 def _calibration_analysis(results: dict[str, dict[str, Any]]) -> str:
+    # Kalibrasyon bulgu paragrafı: T değeri, NLL/ECE'nin testteki değişimi,
+    # ortalama güvenin doğrulukla nasıl hizalandığı ve — dürüstlük notu —
+    # optimizasyon hedefinin ECE değil NLL olduğu vurgusu.
     findings = []
     for corpus, result in results.items():
         scaling = result.get('temperature_scaling')
@@ -1280,6 +1485,8 @@ def _calibration_analysis(results: dict[str, dict[str, Any]]) -> str:
 
 
 def _comparison_rows(path: Path) -> tuple[tuple[Any, ...], ...]:
+    # Ödevler arası model karşılaştırma tablosu: pipeline'ın yazdığı
+    # model_comparison.csv (KNN, ağaç modelleri + MLP) satır satır aktarılır.
     if not path.is_file():
         return ()
     frame = pd.read_csv(path)
@@ -1301,6 +1508,10 @@ def _comparison_rows(path: Path) -> tuple[tuple[Any, ...], ...]:
 
 
 def _result_analysis(results: dict[str, dict[str, Any]], comparison_path: Path) -> list[ReportBlock]:
+    # Sonuç yorumu paragrafları. Her korpus için üç veri odaklı gözlem:
+    # 1. Doğrulama-test farkı (genelleme boşluğu) — büyükse aşırı uyum işareti.
+    # 2. En güçlü/en zayıf duygu sınıfı (per_class F1 uzerinden max/min).
+    # 3. Varsa, önceki ödevlerin en iyi klasik modeliyle kıyas.
     blocks: list[ReportBlock] = []
     comparison = pd.read_csv(comparison_path) if comparison_path.is_file() else None
     for corpus, result in results.items():
@@ -1320,6 +1531,8 @@ def _result_analysis(results: dict[str, dict[str, Any]], comparison_path: Path) 
             f'(F1={per_class[weakest]["f1"]:.4f}) olmuştur.'
         )
         if comparison is not None:
+            # Karşılaştırma tablosundan bu korpusun MLP OLMAYAN en iyi modeli
+            # bulunur (~contains('MLP') filtresi) ve cümleye eklenir.
             prior = comparison[
                 (comparison['corpus'] == corpus)
                 & ~comparison['model'].astype(str).str.contains('MLP', case=False)
@@ -1346,6 +1559,11 @@ def _result_analysis(results: dict[str, dict[str, Any]], comparison_path: Path) 
 
 
 def _test_blocks(output_root: Path, results: dict[str, dict[str, Any]]) -> list[ReportBlock]:
+    # 'Deney Sonuçları' bölümü: genel test tablosu, bootstrap aralıkları,
+    # kalibrasyon tablo+görselleri, sınıf bazlı sonuçlar, karışıklık
+    # matrisleri, model karşılaştırması ve yorum paragrafları. İsteğe bağlı
+    # parçalar (belirsizlik, kalibrasyon, karşılaştırma) ancak ilgili veri
+    # mevcutsa eklenir.
     comparison_path = output_root / 'model_comparison.csv'
     blocks: list[ReportBlock] = [
         Heading(2, 'Deney Sonuçları ve Değerlendirme'),
@@ -1461,8 +1679,13 @@ def _conclusion_blocks(
     stability_root: Path,
     effect_root: Path,
 ) -> list[ReportBlock]:
+    # 'Sonuç' bölümü: tüm deney sayaçları (koşu sayıları) gerçek dosyalardan
+    # toplanır, gelecek çalışmalar listelenir ve ödev şartlarının denetim
+    # tablosu kanıt referanslarıyla verilir.
     total_trials = sum(int(result['num_trials']) for result in results.values())
     feature_trials = len(_ablation_rows(ablation_root))
+    # walrus operatörü (:=): path değişkenini hem koşulda tanımla hem gövdede
+    # kullan — dosya yolu iki kez yazılmasın diye.
     stability_trials = sum(
         len(pd.read_csv(path))
         for corpus in results
@@ -1543,6 +1766,10 @@ def _build_report_blocks(
     stability_root: Path,
     effect_root: Path,
 ) -> tuple[list[ReportBlock], bool]:
+    # Tüm raporun kurgusu: bölüm üreticileri doğru sırayla çağrılır ve tek
+    # bir blok listesi elde edilir. Ayrıca koşunun "tanısal" olup olmadığına
+    # karar verilir: satır limiti kullanılmışsa YA DA grid modu 'report'
+    # değilse rapor tanısaldır ve başına uyarı kutusu konur.
     summary, results, validations = _load_report_inputs(output_root)
     diagnostic = bool(summary.get('diagnostic_limit_per_split')) or summary.get(
         'grid_mode'
@@ -1587,7 +1814,11 @@ def build_report(
     html_path: str | Path | None = None,
     docx_path: str | Path | None = None,
 ) -> ReportPaths:
-    '''Build final HTML and Word reports from persisted experiment artifacts.'''
+    '''Diske kaydedilmiş deney çıktılarından nihai HTML ve Word raporlarını üretir.
+
+    Modülün dışa açılan ana fonksiyonu (run_experiment.py de bunu çağırır):
+    blokları kur, çıktı yollarını belirle, aynı içeriği iki formatta çiz.
+    '''
 
     output_root = Path(output_root)
     blocks, diagnostic = _build_report_blocks(
@@ -1604,6 +1835,8 @@ def build_report(
 
 
 def main() -> None:
+    # Bağımsız CLI: rapor, deney çalıştırmadan da (mevcut çıktılardan)
+    # yeniden üretilebilir. Tüm kök klasörler bayrakla değiştirilebilir.
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output-root', default='odev3/outputs')
     parser.add_argument('--ablation-root', default='odev3/feature_ablation')

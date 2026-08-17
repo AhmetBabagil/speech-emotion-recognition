@@ -1,4 +1,15 @@
-'''Tests for HTML and Word reports generated from experiment artifacts.'''
+'''Deney çıktılarından üretilen HTML ve Word raporlarının testleri.
+
+İki seviyede test var:
+1. **Birim**: yardımcı satır üreticileri (ablasyon/kalibrasyon/kararlılık/
+   etki tabloları) gerçek deney dosyalarından beklenen değerleri okuyor mu;
+   HTML/DOCX çiziciler Türkçe karakterleri koruyup içeriği doğru kaçırıyor
+   (escape) mu?
+2. **Uçtan uca**: build_report, depodaki GERÇEK deney çıktılarından tam
+   raporu üretir; testte raporun kritik cümleleri, sayıları, tablo ve görsel
+   SAYILARI sabitlenir. Böylece rapor üretimi veya deney çıktıları bozulursa
+   test anında haber verir.
+'''
 
 import json
 from pathlib import Path
@@ -21,6 +32,14 @@ from odev3.build_report import (
 
 
 def test_report_helpers_load_expanded_ablation_and_calibration() -> None:
+    '''Satır üreticileri, depodaki gerçek deney dosyalarından beklenen değerleri çıkarmalı.
+
+    Buradaki sabitler (16 ablasyon satırı, T=2.0096/3.2744 sıcaklıkları,
+    ECE geçişleri, kararlılık ortalama±std metinleri...) gerçekten koşulmuş
+    deneylerin sonuçlarıdır. Test, rapor yardımcıları ile deney çıktıları
+    arasındaki "sözleşmeyi" sabitler: format ya da veri değişirse fark edilir.
+    '''
+
     ablation_rows = _ablation_rows(Path('odev3/feature_ablation'))
     summary = json.loads(
         Path('odev3/outputs/summary.json').read_text(encoding='utf-8')
@@ -31,6 +50,7 @@ def test_report_helpers_load_expanded_ablation_and_calibration() -> None:
 
     assert len(ablation_rows) == 16
     assert {row[3] for row in ablation_rows} == {64, 80, 96}
+    # Her korpusta tam bir kazanan işaretlenmiş olmalı (toplam 2).
     assert sum(bool(row[-1]) for row in ablation_rows) == 2
     assert len(calibration_rows) == 2
     assert calibration_rows[0][1] == pytest.approx(2.0095735401)
@@ -53,6 +73,14 @@ def test_report_helpers_load_expanded_ablation_and_calibration() -> None:
 def test_html_renderer_preserves_turkish_text_and_escapes_content(
     tmp_path: Path,
 ) -> None:
+    '''HTML çizici Türkçe karakterleri korumalı ve tehlikeli karakterleri kaçırmalı.
+
+    Kontroller: UTF-8 meta etiketi, 'Ö/ç/ş' gibi karakterlerin aynen
+    kalması, '<' işaretinin '&lt;' olması (HTML enjeksiyonuna karşı), float
+    hücrenin 4 basamağa yuvarlanması, tablo altyazısı ve URL'deki '&'nin
+    href içinde '&amp;' olarak kaçırılması.
+    '''
+
     output_path = tmp_path / 'report.html'
     blocks = [
         Heading(1, 'Ödev 3 – Türkçe Rapor'),
@@ -77,6 +105,13 @@ def test_html_renderer_preserves_turkish_text_and_escapes_content(
 
 
 def test_docx_renderer_writes_headings_paragraphs_and_tables(tmp_path: Path) -> None:
+    '''DOCX çizici başlık, paragraf ve tabloyu Word belgesine doğru aktarmalı.
+
+    Üretilen dosya python-docx ile geri okunur: başlık ve paragraf metinleri
+    belgede bulunmalı, tek tablo olmalı ve float hücre '0.5500' biçiminde
+    (4 ondalık) yazılmış olmalı.
+    '''
+
     from docx import Document
 
     output_path = tmp_path / 'report.docx'
@@ -104,6 +139,15 @@ def test_docx_renderer_writes_headings_paragraphs_and_tables(tmp_path: Path) -> 
 def test_final_report_builds_from_complete_experiment_artifacts(
     tmp_path: Path,
 ) -> None:
+    '''Uçtan uca: gerçek deney çıktılarından NİHAİ raporun tamamı doğru kurulmalı.
+
+    Bu, rapor üretiminin regresyon kalesidir. Raporun kritik cümleleri
+    (koşu sayıları, bootstrap açıklaması, kalibrasyon bulguları, metodolojik
+    uyarılar) ve yapısal sayıları (tam 21 tablo, 8 görsel, hiç eksik görsel
+    kutusu olmaması) HTML ve DOCX çıktılarının İKİSİNDE birden doğrulanır.
+    Deney dosyaları ya da rapor kodu uyumsuz değişirse bu test kırılır.
+    '''
+
     from docx import Document
 
     html_path = tmp_path / 'final.html'

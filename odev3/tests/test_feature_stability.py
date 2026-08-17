@@ -1,4 +1,13 @@
-'''Tests for validation-only multi-seed Mel representation confirmation.'''
+'''Yalnızca-doğrulama, çok tohumlu Mel temsil teyidinin testleri.
+
+feature_stability.py'nin dört yüzü sınanır: aday tanımlarının doğruluğu,
+devam anahtarlarının katılığı, özet/karşılaştırma matematiği ve tam akışın
+protokol garantileri (test yüklenmez, tamamlanan tohumlar atlanır, tüm
+çıktı dosyaları — PNG dahil — gerçekten üretilir).
+
+Ablasyon testlerindeki gibi ağır işler monkeypatch ile sahtelenir; sahte
+eğitim, skorunu tohumdan türetir ki tohum bazlı davranışlar izlenebilsin.
+'''
 
 from dataclasses import replace
 import json
@@ -14,6 +23,7 @@ from ser.constants import CANONICAL_EMOTIONS
 
 
 def _fold(prefix: str) -> pd.DataFrame:
+    # Her duygudan bir örnekli minik sahte katman (bkz. test_feature_ablation).
     return pd.DataFrame(
         [
             {
@@ -28,6 +38,7 @@ def _fold(prefix: str) -> pd.DataFrame:
 
 
 def _metrics(score: float) -> dict:
+    # compute_metrics biçiminde sahte metrik sözlüğü.
     return {
         'accuracy': score,
         'balanced_accuracy': score,
@@ -44,6 +55,8 @@ def _result_row(
     seed: int,
     macro_f1: float,
 ) -> dict:
+    # aggregate/paired fonksiyonlarının beklediği biçimde tek koşu satırı
+    # üretir; yardımcı metrikler macro_f1'den türetilir.
     return {
         'corpus': corpus,
         'candidate': candidate,
@@ -61,6 +74,12 @@ def _result_row(
 
 
 def test_confirmation_candidates_cover_main_and_challenger() -> None:
+    '''Her korpus için ana + rakip aday tanımları ve sabit tohumlar doğrulanmalı.
+
+    Aday adları ve sıraları rapora giriyor; boyut şartı (>=4000) her aday
+    için geçerli olmalı ve bilinmeyen korpus adı açık hatayla dönmeli.
+    '''
+
     cremad = stability.confirmation_candidates('cremad')
     meld = stability.confirmation_candidates('meld')
 
@@ -82,6 +101,12 @@ def test_confirmation_candidates_cover_main_and_challenger() -> None:
 
 
 def test_completed_keys_require_protocol_model_and_epoch_match() -> None:
+    '''Devam anahtarları protokol sürümü + model + epoch bütçesi birebir uyumunu istemeli.
+
+    Dört satırdan yalnızca temel satır tüm koşulları sağlar; eski protokol,
+    farklı epoch limiti ve değişik modelli satırlar elenmelidir.
+    '''
+
     reference = stability.reference_model('cremad')
     changed_model = replace(reference, dropout=0.45)
     base = {
@@ -108,6 +133,14 @@ def test_completed_keys_require_protocol_model_and_epoch_match() -> None:
 
 
 def test_aggregate_stability_rows_ranks_mean_before_best_single_seed() -> None:
+    '''Sıralama ORTALAMAYA göre yapılmalı; tek tohumluk parlak skor yeterli olmamalı.
+
+    Kurgu bilinçli: 'volatile' aday tek tohumda 0.55 ile en yüksek skoru
+    alır ama ortalaması (0.4533) 'stable' adayın ortalamasının (0.47)
+    altındadır. Doğru davranış: stable birinci. Bu, deneyin varlık sebebini
+    (tek tohum şansına kanmamayı) doğrudan test eder.
+    '''
+
     rows = [
         _result_row('cremad', 'stable', 42, 0.48),
         _result_row('cremad', 'stable', 143, 0.47),
@@ -128,6 +161,14 @@ def test_aggregate_stability_rows_ranks_mean_before_best_single_seed() -> None:
 
 
 def test_paired_candidate_comparison_counts_seed_level_wins() -> None:
+    '''Eşleştirilmiş karşılaştırma tohum tohum kazananı saymalı; eksik tohum reddedilmeli.
+
+    Kurgu: seed 42'de rakip önde, 143'te ana önde, 244'te berabere —
+    beklenen sayım 1/1/1 ve ortalama fark +0.01. Son satır çıkarılınca tohum
+    kümeleri artık eşit olmadığından fonksiyon hata vermelidir (eşleşmeyen
+    kümelerle "eşleştirilmiş" analiz yapılamaz).
+    '''
+
     rows = [
         _result_row('cremad', 'main_feature', 42, 0.46),
         _result_row('cremad', 'main_feature', 143, 0.48),
@@ -153,6 +194,18 @@ def test_stability_run_never_loads_test_and_resumes_completed_seeds(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
+    '''Tam akış: test asla yüklenmemeli, tüm çıktılar yazılmalı ve ikinci koşu her şeyi atlamalı.
+
+    İlk çalıştırma: 2 aday x 3 tohum = 6 eğitim; tohum sırası deterministik
+    ([1,2,3,1,2,3]) olmalı, 'test' hiçbir yükleme açıklamasında geçmemeli,
+    CSV/JSON/PNG dosyaları üretilmeli (PNG'nin gerçekten PNG olduğu sihirli
+    bayt imzasıyla kontrol edilir).
+
+    İkinci çalıştırma (resume): partial CSV'den tüm işler tamamlanmış
+    görünmeli — sıfır eğitim, sıfır öznitelik yüklemesi, ama sonuçlar yine
+    6 koşuyu içermeli.
+    '''
+
     loaded_descriptions: list[str] = []
     trained_seeds: list[int] = []
     monkeypatch.setattr(
@@ -169,6 +222,8 @@ def test_stability_run_never_loads_test_and_resumes_completed_seeds(
         return features, labels
 
     def fake_train(*args, **kwargs):
+        # Skoru tohumdan türet: aynı tohum hep aynı skoru verir, böylece iki
+        # adayın aynı tohumdaki skorları eşit olur (comparison'da 3 beraberlik).
         seed = int(kwargs['seed'])
         trained_seeds.append(seed)
         score = 0.2 + seed / 1000.0
@@ -212,9 +267,11 @@ def test_stability_run_never_loads_test_and_resumes_completed_seeds(
         'comparison'
     ]
     plot_path = corpus_dir / 'feature_stability.png'
+    # PNG dosyalarının ilk 8 baytı standart sihirli imzadır.
     assert plot_path.read_bytes().startswith(b'\x89PNG\r\n\x1a\n')
     assert plot_path.stat().st_size > 1_000
 
+    # İkinci çalıştırma: sayaçları sıfırla ve devam mekanizmasını ölç.
     trained_seeds.clear()
     loaded_descriptions.clear()
     resumed = stability.run_corpus_stability('cremad', **kwargs)
@@ -227,6 +284,8 @@ def test_stability_run_never_loads_test_and_resumes_completed_seeds(
 @pytest.mark.parametrize(
     'kwargs',
     [
+        # Sırasıyla: sıfır epoch, boş tohum listesi, kopya tohum, negatif
+        # tohum, geçersiz worker sayıları.
         {'max_epochs': 0},
         {'seeds': ()},
         {'seeds': (42, 42)},
@@ -239,6 +298,8 @@ def test_stability_run_rejects_invalid_settings(
     tmp_path: Path,
     kwargs: dict,
 ) -> None:
+    '''Geçersiz koşu ayarlarının tamamı, deney başlamadan ValueError ile reddedilmeli.'''
+
     settings = {
         'manifest_path': tmp_path / 'manifest.csv',
         'cache_root': tmp_path / 'cache',

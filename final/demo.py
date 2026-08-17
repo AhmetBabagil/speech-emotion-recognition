@@ -1,9 +1,11 @@
-'''Demo: run saved final models on WAV files and show both methods' outputs.
+'''Demo: kaydedilmiş final modellerini WAV dosyalarında çalıştırır,
+iki yöntemin çıktısını yan yana gösterir.
 
-Inputs come from the good/bad example directory (random pick) or from paths
-given on the command line, as the assignment's demo section requires.
+Yönergenin 8. bölümünün birebir karşılığı: girdiler ya iyi/kötü örnek
+dizininden RASTGELE seçilir ya da komut satırında ADIYLA/YOLUYLA verilir;
+her girdi iki yöntemden geçirilip sonuçlarıyla gösterilir.
 
-Examples:
+Örnekler:
     python final/demo.py --rastgele 3
     python final/demo.py final/demo_ornekleri/1091_IEO_FEA_HI.wav
     python final/demo.py --dizin final/demo_ornekleri --rastgele 5
@@ -24,7 +26,11 @@ import torch  # noqa: E402
 from final.predict import load_checkpoint, predict  # noqa: E402
 from ser.constants import CANONICAL_EMOTIONS, CREMAD_CODE_TO_CANONICAL  # noqa: E402
 
+# Test kümesinden seçilmiş 6 iyi + 4 kötü örneğin durduğu varsayılan dizin.
 DEFAULT_DIR = Path('final/demo_ornekleri')
+
+# Her yöntem için tercih sırası: geliştirme aşamasının modeli varsa onu,
+# yoksa arama kazananını kullan.
 MODEL_PATHS = {
     'Yöntem 1 (CNN)': (
         'final/outputs/cremad/cnn/improved_model.pt',
@@ -38,7 +44,11 @@ MODEL_PATHS = {
 
 
 def true_label_from_name(path: Path) -> str | None:
-    '''CREMA-D file names carry the emotion code as the third token.'''
+    '''CREMA-D dosya adının 3. parçası duygu kodudur (ör. ..._ANG_... -> angry).
+
+    Bu sayede demo, tahminin doğru mu yanlış mı olduğunu (✓/✗) etiketli
+    dosyalarda otomatik gösterebilir.
+    '''
 
     parts = path.stem.split('_')
     if len(parts) >= 3:
@@ -47,8 +57,11 @@ def true_label_from_name(path: Path) -> str | None:
 
 
 def load_methods(device: torch.device) -> dict:
+    '''İki yöntemin modellerini diskten yükler.'''
+
     methods = {}
     for name, candidates in MODEL_PATHS.items():
+        # Tercih listesindeki ilk mevcut dosyayı seç.
         chosen = next((p for p in candidates if Path(p).is_file()), None)
         if chosen is None:
             raise FileNotFoundError(
@@ -59,6 +72,8 @@ def load_methods(device: torch.device) -> dict:
 
 
 def run_demo(paths: list[Path], methods: dict, device: torch.device) -> None:
+    '''Her dosyayı iki yöntemden geçirir; tahmin + ✓/✗ + ilk 3 olasılığı basar.'''
+
     for path in paths:
         truth = true_label_from_name(path)
         print(f'\n{path.name}   (gerçek: {truth or "bilinmiyor"})')
@@ -84,12 +99,13 @@ def main() -> None:
     parser.add_argument('--device', choices=['auto', 'cpu', 'cuda'], default='auto')
     args = parser.parse_args()
 
+    # Girdi listesi: elle verilenler + (istenirse) dizinden rastgele seçilenler.
     paths = [Path(p) for p in args.girdi]
     if args.rastgele > 0:
         havuz = sorted(Path(args.dizin).glob('*.wav'))
         if not havuz:
             parser.error(f'{args.dizin} içinde .wav bulunamadı.')
-        rng = random.Random(args.seed)
+        rng = random.Random(args.seed)   # seed verilirse seçim tekrarlanabilir
         paths.extend(rng.sample(havuz, min(args.rastgele, len(havuz))))
     if not paths:
         parser.error('En az bir dosya verin ya da --rastgele N kullanın.')

@@ -1,4 +1,13 @@
-'''Tests for validation-only Mel feature ablations.'''
+'''Yalnızca-doğrulama Mel öznitelik ablasyonlarının testleri.
+
+Üç şey sınanır: aday listesinin bileşimi (kontrollü çiftler + ödev boyut
+şartı), devam-etme anahtarlarının yalnızca birebir uyumlu satırları
+"tamamlanmış" sayması ve — en kritik protokol garantisi — ablasyon
+sırasında TEST özniteliklerinin asla yüklenmemesi.
+
+Ağır işler (bölme kurma, öznitelik yükleme, eğitim) monkeypatch ile
+sahtelenir; testler yalnızca ablasyon modülünün akış mantığını ölçer.
+'''
 
 from dataclasses import replace
 import json
@@ -14,6 +23,9 @@ from ser.constants import CANONICAL_EMOTIONS
 
 
 def _fold(prefix: str) -> pd.DataFrame:
+    # Her duygudan bir örnek içeren minik sahte katman (fold) üretir.
+    # Konuşmacı adları prefix'lidir; böylece train/validation/test katmanları
+    # birbirinden ayırt edilebilir ve konuşmacı çakışması olmaz.
     return pd.DataFrame(
         [
             {
@@ -28,6 +40,7 @@ def _fold(prefix: str) -> pd.DataFrame:
 
 
 def _metrics(score: float) -> dict:
+    # Sahte eğitim sonucu için compute_metrics biçiminde metrik sözlüğü.
     return {
         'accuracy': score,
         'balanced_accuracy': score,
@@ -39,6 +52,12 @@ def _metrics(score: float) -> dict:
 
 
 def test_feature_candidates_cover_time_and_frequency_resolutions() -> None:
+    '''Aday listesi tam olarak beklenen 8 kombinasyon olmalı, sıralı ve çiftler halinde.
+
+    Ayrıca her aday ödevin 4000 boyut alt sınırını sağlamalı ve parmak
+    izleri benzersiz olmalı (önbellekler karışmasın).
+    '''
+
     candidates = ablation.feature_candidates()
 
     assert [(c.n_mels, c.n_frames, c.frame_strategy) for c in candidates] == [
@@ -56,6 +75,15 @@ def test_feature_candidates_cover_time_and_frequency_resolutions() -> None:
 
 
 def test_completed_keys_require_matching_model_seed_and_epoch_budget() -> None:
+    '''Devam anahtarları YALNIZCA aynı model+seed+epoch bütçeli satırları saymalı.
+
+    Beş satırdan yalnızca ilki her koşulu sağlar. Diğerleri tek tek birer
+    uyumsuzluk taşır: farklı dropout'lu model, farklı seed, farklı epoch
+    limiti ve bozuk JSON. Hiçbiri "tamamlanmış" sayılmamalı — aksi halde
+    eski/yanlış sonuçlar yeni deneye taşınırdı. İlk satırın girintili
+    (indent=2) JSON'u da kanonikleştirmenin biçimden bağımsız çalıştığını test eder.
+    '''
+
     reference = ablation.REFERENCE_MODELS['cremad']
     changed_model = replace(reference, dropout=0.45)
     rows = [
@@ -101,7 +129,16 @@ def test_ablation_never_loads_test_features(
     monkeypatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    '''Ablasyon akışı test özniteliklerini HİÇ yüklememeli (protokolün kanıt testi).
+
+    Sahte load_feature_matrix her çağrının description'ını kaydeder: sekiz
+    aday x (train + validation) = 16 çağrı olmalı ve hiçbirinde 'test'
+    geçmemeli. Ayrıca her sonuç satırında test_features_loaded=False kalmalı,
+    nihai CSV yazılmalı ve ilerleme mesajları doğru sırada basılmalı.
+    '''
+
     loaded_descriptions: list[str] = []
+    # Gerçek manifest/bölme yerine üç sahte katman döndür.
     monkeypatch.setattr(
         ablation,
         '_splits_for',
@@ -109,6 +146,8 @@ def test_ablation_never_loads_test_features(
     )
 
     def fake_load(records, cache_dir, config, **kwargs):
+        # Hangi katmanın istendiğini description üzerinden kaydet; birim
+        # matris tabanlı, ayrılabilir sahte öznitelikler döndür.
         loaded_descriptions.append(kwargs['description'])
         labels = records['label_idx'].to_numpy(dtype=np.int64)
         features = np.zeros((len(records), config.vector_size), dtype=np.float32)
@@ -116,6 +155,8 @@ def test_ablation_never_loads_test_features(
         return features, labels
 
     def fake_train(*args, **kwargs):
+        # Eğitimi tamamen atla: sabit skorlu sahte bir sonuç yeterli,
+        # çünkü test edilen şey skor değil akışın kendisi.
         return SimpleNamespace(
             history=[{'epoch': 1, 'val_macro_f1': 0.25}],
             best_epoch=1,
@@ -139,6 +180,7 @@ def test_ablation_never_loads_test_features(
 
     candidate_count = len(ablation.feature_candidates())
     assert len(rows) == candidate_count
+    # Aday başına tam iki yükleme (train + validation), test için sıfır.
     assert len(loaded_descriptions) == candidate_count * 2
     assert all('test' not in description for description in loaded_descriptions)
     assert all(row['test_features_loaded'] in (False, np.False_) for row in rows)

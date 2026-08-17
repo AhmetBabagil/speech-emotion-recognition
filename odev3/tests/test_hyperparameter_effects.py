@@ -1,4 +1,10 @@
-"""Tests for descriptive summaries of completed validation searches."""
+"""Tamamlanmış doğrulama aramalarının betimsel özetlerine ait testler.
+
+hyperparameter_effects.py'nin dört davranışı sınanır: stability satırlarının
+analiz dışında tutulması, grup istatistiklerinin elle doğrulanabilir
+doğruluğu, bozuk girdilerin (eksik sütun, kopya config_id) reddedilmesi ve
+tam analizin tüm CSV/JSON çıktılarını doğru içerikle yazması.
+"""
 
 import json
 from pathlib import Path
@@ -10,6 +16,12 @@ from odev3 import hyperparameter_effects as effects
 
 
 def _validation_frame() -> pd.DataFrame:
+    # Dört satırlık sahte doğrulama tablosu. Kurgunun püf noktaları:
+    # - İlk iki satır aynı learning_rate (0.001) ile bir GRUP oluşturur.
+    # - Üçüncü satır farklı lr + aktivasyon + batch_norm ile ikinci grupları açar.
+    # - Dördüncü satır 'stability' aşamasıdır ve config_id'si 2. satırla
+    #   AYNIDIR (kasıtlı): analiz bu satırı dışlamalı; dahil etseydi 0.9'luk
+    #   skor lr=0.001 grubunun ortalamasını yapay olarak şişirirdi.
     common = {
         'batch_size': 64,
         'patience': 8,
@@ -60,6 +72,8 @@ def _validation_frame() -> pd.DataFrame:
 
 
 def test_validation_search_rows_excludes_repeated_stability_seed() -> None:
+    '''Süzme, stability tekrarını atmalı; kalan 3 satırın config_id'leri benzersiz olmalı.'''
+
     filtered = effects.validation_search_rows(_validation_frame())
 
     assert len(filtered) == 3
@@ -68,6 +82,14 @@ def test_validation_search_rows_excludes_repeated_stability_seed() -> None:
 
 
 def test_parameter_effects_report_group_counts_and_descriptive_spread() -> None:
+    '''Grup istatistikleri elle hesaplanan değerlere eşit olmalı; genel bakış en iyi/kötüyü seçmeli.
+
+    lr=0.001 grubunun iki koşusu (0.4 ve 0.5): ortalama 0.45, std 0.05
+    (ddof=0). Genel bakışta en iyi değer 0.001, en kötü 0.0001 ve fark
+    0.45-0.30=0.15 olmalı. batch_norm için hem true hem false denendiği de
+    doğrulanır (kanonik metin 'true'/'false').
+    '''
+
     rows = effects.parameter_effect_rows(_validation_frame())
     learning_rate = [row for row in rows if row['parameter'] == 'learning_rate']
 
@@ -87,6 +109,12 @@ def test_parameter_effects_report_group_counts_and_descriptive_spread() -> None:
 
 
 def test_validation_search_rows_rejects_missing_or_duplicate_configs() -> None:
+    '''Eksik sütun ve kopya config_id, anlaşılır mesajlarla ayrı ayrı reddedilmeli.
+
+    Kopya config_id özellikle tehlikelidir: aynı konfigürasyonun iki kez
+    sayılması grup ortalamalarını sessizce çarpıtırdı.
+    '''
+
     missing = _validation_frame().drop(columns=['dropout'])
     with pytest.raises(ValueError, match='missing columns'):
         effects.validation_search_rows(missing)
@@ -100,6 +128,14 @@ def test_validation_search_rows_rejects_missing_or_duplicate_configs() -> None:
 def test_analysis_writes_per_dataset_csv_and_json_artifacts(
     tmp_path: Path,
 ) -> None:
+    '''Uçtan uca analiz: iki korpus için CSV'ler yazılmalı, summary.json diskteki haliyle eşleşmeli.
+
+    Doğrulananlar: dahil edilen aşama listesi, metodolojik sınır cümlesinin
+    varlığı, korpus başına 3 konfigürasyon + 1 dışlanmış stability satırı,
+    her parametre için bir genel bakış satırı ve diske yazılan JSON'un
+    fonksiyonun döndürdüğü sözlükle birebir aynı olması.
+    '''
+
     output_root = tmp_path / 'outputs'
     for corpus in ('cremad', 'meld'):
         corpus_dir = output_root / corpus
