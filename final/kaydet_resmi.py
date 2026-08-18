@@ -1,8 +1,13 @@
 '''Resmi Yöntem 2 modelini (jitter+kontrast, 53 boyut) 5 koşu eğitip kaydeder.
 
-İki ablasyonun seçtiği en iyi öznitelik setiyle (varsayılan IntervalConfig)
-resmi modeli üretir; en iyi koşuyu improved_model.pt olarak, metrikleri de
-JSON olarak yazar. Demo/predict bu modeli kullanır.
+Metodoloji (dürüstlük için önemli):
+  * Manşet sayı = 5 koşunun ORTALAMASI (tek bir şanslı koşu değil).
+  * Kaydedilen model (improved_model.pt) = 5 koşu içinde GEÇERLEMEDE (validation)
+    en iyi olan koşu. Modeli test setine bakarak seçmek test sızıntısıdır; bu yüzden
+    seçimi yalnızca geçerleme macro-F1'ine göre yapıyoruz.
+  * Kaydedilen modelin karışıklık matrisi ve öğrenme eğrisi, sunumun beklediği
+    standart isimlerle (test_confusion_matrix.png, winner_learning_curve.png)
+    yeniden çizilir; böylece slaytlar güncel modeli gösterir.
 '''
 
 from __future__ import annotations
@@ -21,7 +26,7 @@ from final.ablasyon import MODEL, on_cikar_paralel  # noqa: E402
 from final.dataset import Standardizer  # noqa: E402
 from final.features import IntervalConfig, extract_interval_series  # noqa: E402
 from final.models import SeqRNN  # noqa: E402
-from final.pipeline import SplitSettings, _feature_folds  # noqa: E402
+from final.pipeline import SplitSettings, _feature_folds, _plot_history  # noqa: E402
 from final.training import (  # noqa: E402
     evaluate_arrays,
     inverse_frequency_weights,
@@ -34,8 +39,8 @@ from ser.evaluate import compute_metrics, report as evaluate_report  # noqa: E40
 
 def main() -> None:
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    fcfg = IntervalConfig(n_intervals=32, interval_ms=200)  # varsayılan = jitter+kontrast (53)
-    print(f'Resmi Yöntem 2 öznitelik boyutu: {fcfg.feature_dim}')
+    fcfg = IntervalConfig(n_intervals=32, interval_ms=200)  # varsayilan = jitter+kontrast (53)
+    print(f'Resmi Yontem 2 oznitelik boyutu: {fcfg.feature_dim}')
 
     manifest = pd.read_csv('data/processed/manifest.csv')
     ayar = SplitSettings(train_corpora=('cremad',), eval_corpora=('cremad',))
@@ -51,7 +56,8 @@ def main() -> None:
     olcek = Standardizer.fit(tx, feature_axis=2)
     tx_s, vx_s, ex_s = olcek.transform(tx), olcek.transform(vx), olcek.transform(ex)
 
-    accs, f1s, best_state, best_acc = [], [], None, -1.0
+    # 5 koşu: her koşunun test metriklerini VE geçerleme macro-F1'ini topla.
+    accs, bals, f1s, kosular = [], [], [], []
     for k in range(5):
         torch.manual_seed(k)
         torch.cuda.manual_seed_all(k)
@@ -62,30 +68,52 @@ def main() -> None:
         _, _, prob = evaluate_arrays(res.model, ex_s, ey, class_weights=cw, device=device)
         m = compute_metrics(ey, prob.argmax(axis=1))
         accs.append(m['accuracy'])
+        bals.append(m['balanced_accuracy'])
         f1s.append(m['macro_f1'])
-        if m['accuracy'] > best_acc:
-            best_acc = m['accuracy']
-            best_state = {n: v.detach().cpu().clone() for n, v in res.model.state_dict().items()}
+        val_f1 = float(res.validation_metrics['macro_f1'])
+        kosular.append({
+            'val_f1': val_f1,
+            'state': {n: v.detach().cpu().clone() for n, v in res.model.state_dict().items()},
+            'history': res.history,
+            'test_acc': m['accuracy'],
+        })
+        print(f'  kosu {k}: val_macroF1={val_f1:.4f}  test_acc={m["accuracy"]:.4f}')
+
+    # Modeli GEÇERLEMEDE en iyi koşuya göre seç (test setine bakmadan).
+    secilen = max(kosular, key=lambda r: r['val_f1'])
 
     out = Path('final/outputs/cremad/rnn')
     model = SeqRNN(fcfg.feature_dim, NUM_CLASSES, MODEL)
-    model.load_state_dict(best_state)
+    model.load_state_dict(secilen['state'])
     model.to(device).eval()
     _, _, prob = evaluate_arrays(model, ex_s, ey, class_weights=cw, device=device)
-    tm = evaluate_report(ey, prob.argmax(axis=1), out, prefix='test_pitch',
-                         title='RNN + jitter/kontrast (53) test')
+    # Standart isimlerle yaz: sunum bu dosyalari okuyor -> guncel modeli gosterir.
+    tm = evaluate_report(ey, prob.argmax(axis=1), out, prefix='test',
+                         title='Yontem 2 (BiGRU) — jitter+kontrast (53) test')
+    _plot_history(secilen['history'], out / 'winner_learning_curve.png',
+                  'Yontem 2 (BiGRU) — ogrenme egrisi')
     torch.save({'state_dict': model.state_dict(), 'variant': 'jitter_contrast53',
                 'feature_config': fcfg.__dict__, 'model_config': MODEL.to_dict(),
                 'standardizer_mean': olcek.mean, 'standardizer_scale': olcek.scale,
                 'feature_axis': olcek.feature_axis}, out / 'improved_model.pt')
-    (out / 'pitch_summary.json').write_text(json.dumps({
+
+    ortalama = {
         'variant': 'jitter+contrast (53)', 'feature_dim': fcfg.feature_dim, 'runs': 5,
+        'selection': 'validation macro-F1 (test sizintisi yok)',
         'mean_accuracy': float(np.mean(accs)), 'std_accuracy': float(np.std(accs)),
-        'mean_macro_f1': float(np.mean(f1s)), 'baseline_test_accuracy': 0.6377,
-        'best_run_test': tm}, indent=2, default=str), encoding='utf-8')
-    print(f'\n5-koşu ortalama: acc={np.mean(accs):.4f}±{np.std(accs):.4f} '
-          f'macro-F1={np.mean(f1s):.4f}')
-    print(f'En iyi koşu kaydedildi (improved_model.pt): acc={tm["accuracy"]:.4f}')
+        'mean_balanced_accuracy': float(np.mean(bals)),
+        'mean_macro_f1': float(np.mean(f1s)), 'std_macro_f1': float(np.std(f1s)),
+        'best_run_accuracy': float(np.max(accs)),
+        'baseline_test_accuracy': 0.6455,   # taban (44 boyut) 5-kosu ort.
+        'selected_model_test': tm,
+    }
+    (out / 'pitch_summary.json').write_text(
+        json.dumps(ortalama, indent=2, default=str), encoding='utf-8')
+
+    print(f'\n5-kosu ortalama: acc={np.mean(accs):.4f}±{np.std(accs):.4f}  '
+          f'bal={np.mean(bals):.4f}  macro-F1={np.mean(f1s):.4f}±{np.std(f1s):.4f}')
+    print(f'Kaydedilen model (gecerlemeye gore secildi): test_acc={tm["accuracy"]:.4f}  '
+          f'macro-F1={tm["macro_f1"]:.4f}')
     print(f'disgust F1: {tm["per_class"]["disgust"]["f1"]:.3f}')
 
 
