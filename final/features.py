@@ -365,15 +365,21 @@ def _interval_features(segment: np.ndarray, config: IntervalConfig) -> np.ndarra
 def extract_interval_series(
     audio_path: str | Path,
     config: IntervalConfig,
+    audio: np.ndarray | None = None,
 ) -> np.ndarray:
     '''Bir kaydı [n_intervals, feature_dim] boyutlu float32 seriye çevirir.
 
     RNN bu seriyi satır satır (aralık aralık) okuyarak duygunun zaman
     içindeki seyrini modeller.
+
+    ``audio`` verilirse dosyadan yükleme atlanır ve doğrudan bu dalga formu
+    kullanılır (ör. veri artırma için pitch-shift edilmiş bir kayıt). None
+    (varsayılan) ise davranış değişmez: kayıt ``audio_path``'ten yüklenir.
     '''
 
     config.validate()
-    audio = _load_audio(audio_path, config.sample_rate)
+    if audio is None:
+        audio = _load_audio(audio_path, config.sample_rate)
     window = config.interval_samples
     rows = []
     for start in interval_starts(len(audio), config):
