@@ -141,6 +141,8 @@ def train_with_early_stopping(
     amp: bool = True,
     min_delta: float = 1e-4,
     train_transform: Callable[[torch.Tensor], torch.Tensor] | None = None,
+    label_smoothing: float = 0.0,
+    mixup_alpha: float = 0.0,
 ) -> TrainingOutcome:
     '''Bir adayı eğitir ve geçerleme macro-F1'i en iyi olan epoch'u geri yükler.
 
@@ -162,7 +164,9 @@ def train_with_early_stopping(
     model = model.to(device)
     # Yönerge şartı: sınıf sayısıyla ters orantılı ağırlıklı cross-entropy.
     class_weights = inverse_frequency_weights(train_labels, num_classes).to(device)
-    criterion = nn.CrossEntropyLoss(weight=class_weights)
+    # label_smoothing>0: modelin "kesin eminim" demesini cezalandırır; hedef
+    # olasılık kütlesinin küçük bir kısmı diğer sınıflara dağıtılır (varsayılan 0 = kapalı).
+    criterion = nn.CrossEntropyLoss(weight=class_weights, label_smoothing=label_smoothing)
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=optim.learning_rate,
@@ -220,10 +224,24 @@ def train_with_early_stopping(
             if train_transform is not None:
                 # Veri artırma (varsa) yalnızca burada, eğitim yığınında.
                 features = train_transform(features)
+            # Mixup (Zhang vd., 2018): iki örneği (ve etiketlerini) rastgele lam
+            # oranıyla karıştır; karar sınırını yumuşatan güçlü bir düzenlileştirme.
+            # mixup_alpha=0 -> tamamen kapalı (mevcut davranış birebir korunur).
+            mix_labels = None
+            mix_lam = 1.0
+            if mixup_alpha > 0.0:
+                mix_lam = float(np.random.beta(mixup_alpha, mixup_alpha))
+                perm = torch.randperm(features.shape[0], device=features.device)
+                features = mix_lam * features + (1.0 - mix_lam) * features[perm]
+                mix_labels = labels[perm]
             optimizer.zero_grad(set_to_none=True)
             with torch.amp.autocast('cuda', enabled=use_amp):
                 logits = model(features)
-                loss = criterion(logits, labels)
+                if mix_labels is None:
+                    loss = criterion(logits, labels)
+                else:
+                    loss = (mix_lam * criterion(logits, labels)
+                            + (1.0 - mix_lam) * criterion(logits, mix_labels))
             scaler.scale(loss).backward()      # geri yayılım
             scaler.unscale_(optimizer)
             # Gradyan kırpma: tek bir kötü yığının eğitimi raydan çıkarmasını önler.

@@ -1,0 +1,49 @@
+{
+  "uye_sayisi": 5,
+  "tekil_acc_ort": 0.5975471698113207,
+  "tekil_acc_std": 0.011219674526278119,
+  "topluluk_acc": 0.6226415094339622,
+  "topluluk_balanced": 0.6261153686211608,
+  "topluluk_macro_f1": 0.6251196799408295,
+  "taban_5kosu_ort": 0.5585,
+  "specaug_5kosu_ort": 0.5989,
+  "eski_kazanan_tek_kosu": 0.6264,
+  "per_class": {
+    "angry": {
+      "precision": 0.7677419354838709,
+      "recall": 0.6574585635359116,
+      "f1": 0.7083333333333334,
+      "support": 181
+    },
+    "disgust": {
+      "precision": 0.6594202898550725,
+      "recall": 0.5027624309392266,
+      "f1": 0.5705329153605015,
+      "support": 181
+    },
+    "fear": {
+      "precision": 0.48743718592964824,
+      "recall": 0.5359116022099447,
+      "f1": 0.5105263157894737,
+      "support": 181
+    },
+    "happy": {
+      "precision": 0.5876288659793815,
+      "recall": 0.6298342541436464,
+      "f1": 0.608,
+      "support": 181
+    },
+    "neutral": {
+      "precision": 0.6839080459770115,
+      "recall": 0.7677419354838709,
+      "f1": 0.723404255319149,
+      "support": 155
+    },
+    "sad": {
+      "precision": 0.6,
+      "recall": 0.6629834254143646,
+      "f1": 0.6299212598425197,
+      "support": 181
+    }
+  }
+}
