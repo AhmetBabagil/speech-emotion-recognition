@@ -1,0 +1,11 @@
+{
+  "turler": [
+    "pitch",
+    "noise"
+  ],
+  "kosu": 5,
+  "test_acc_ort": 0.6645283018867925,
+  "test_acc_std": 0.012524095679453647,
+  "macro_f1_ort": 0.6700145106562568,
+  "artirmasiz_taban": 0.6694
+}
