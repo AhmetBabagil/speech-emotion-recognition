@@ -1,16 +1,11 @@
-'''Yöntem 2 (BiGRU) için TOPLULUK: 5 jitter+kontrast BiGRU'nun softmax
-çıktılarını ortalar.
-
-CNN'de topluluk +2,5 puan kazandırdı; aynı fikri en iyi modelimize (5-koşu
-ort. %66,9) uyguluyoruz. Beş üye de aynı mimari (BiGRU 32×200 ms, 192×2,
-jitter+kontrast 53 boyut), farklı rastgele tohum, hepsi sıfırdan.
-
-Dürüstlük: topluluk test'e BAKMADAN kurulur (eşit ağırlıklı ortalama). Her üye
-kendi geçerlemesinde erken durur; test yalnızca en sonda bir kez ölçülür.
-
-Örnek:
-    python final/rnn_topluluk.py --uye 5
-'''
+# Yöntem 2 (BiGRU) için TOPLULUK: 5 jitter+kontrast BiGRU'nun softmax çıktılarını ortalar.
+#
+# CNN'de topluluk +2,5 puan kazandırdı; aynı fikri en iyi modelimize (5-koşu ort. %66,9) uyguluyoruz. Beş üye de aynı mimari (BiGRU 32×200 ms, 192×2, jitter+kontrast 53 boyut), farklı rastgele tohum, hepsi sıfırdan.
+#
+# Dürüstlük: topluluk test'e BAKMADAN kurulur (eşit ağırlıklı ortalama). Her üye kendi geçerlemesinde erken durur; test yalnızca en sonda bir kez ölçülür.
+#
+# Örnek:
+# python final/rnn_topluluk.py --uye 5
 
 from __future__ import annotations
 

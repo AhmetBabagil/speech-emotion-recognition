@@ -1,22 +1,15 @@
-'''Öznitelik ablasyonu: her mantıklı öznitelik grubunun test başarısına katkısı.
-
-Kümülatif olarak öznitelik ekler (taban -> +pitch -> +jitter/shimmer ->
-+kontrast -> +delta2 -> +bant genişliği) ve her seti aynı resmî bölmede
-(seed 42) BİRDEN ÇOK kez eğitir. Neden çok koşu? GPU tam deterministik
-olmadığından tek koşu ±%1-2 oynayabilir; ortalama ± std gerçek katkıyı verir.
-
-Sonuç: rapora doğrudan girebilecek bir tablo + ablasyon.csv.
-
-Önce öznitelikleri hazırlayın (her set için bir kez, süreç-paralel):
-    python final/hizli_cikarma.py --sadece 32 200 --islemler 14
-Not: hizli_cikarma varsayılan (tüm bayraklar açık) seti çıkarır; ablasyon
-alt-setleri de bu tam setin parçalarını yeniden kullanamaz (fingerprint
-farklı), bu yüzden bu betik her set için eksik özniteliği kendi çıkarır
-(ilk sette yavaş, sonra önbellekten).
-
-Örnek:
-    python final/ablasyon.py --kosu 5 --feature-workers 16
-'''
+# Öznitelik ablasyonu: her mantıklı öznitelik grubunun test başarısına katkısı.
+#
+# Kümülatif olarak öznitelik ekler (taban -> +pitch -> +jitter/shimmer -> +kontrast -> +delta2 -> +bant genişliği) ve her seti aynı resmî bölmede (seed 42) BİRDEN ÇOK kez eğitir. Neden çok koşu? GPU tam deterministik olmadığından tek koşu ±%1-2 oynayabilir; ortalama ± std gerçek katkıyı verir.
+#
+# Sonuç: rapora doğrudan girebilecek bir tablo + ablasyon.csv.
+#
+# Önce öznitelikleri hazırlayın (her set için bir kez, süreç-paralel):
+# python final/hizli_cikarma.py --sadece 32 200 --islemler 14
+# Not: hizli_cikarma varsayılan (tüm bayraklar açık) seti çıkarır; ablasyon alt-setleri de bu tam setin parçalarını yeniden kullanamaz (fingerprint farklı), bu yüzden bu betik her set için eksik özniteliği kendi çıkarır (ilk sette yavaş, sonra önbellekten).
+#
+# Örnek:
+# python final/ablasyon.py --kosu 5 --feature-workers 16
 
 from __future__ import annotations
 
@@ -65,11 +58,9 @@ MODEL = RNNConfig(rnn_type='gru', hidden_size=192, num_layers=2, bidirectional=T
 
 
 def on_cikar_paralel(yollar, cfg_sozluk, cache_root, islemler):
-    '''Bir öznitelik setini süreç-paralel çıkarır (hizli_cikarma altyapısını yeniden kullanır).
-
-    pyin gibi pahalı işlemleri thread yerine 14 çekirdeğe böler; eksik olmayan
-    dosyalar atlanır, böylece ikinci kez çağrıldığında saniyeler sürer.
-    '''
+    # Bir öznitelik setini süreç-paralel çıkarır (hizli_cikarma altyapısını yeniden kullanır).
+    #
+    # pyin gibi pahalı işlemleri thread yerine 14 çekirdeğe böler; eksik olmayan dosyalar atlanır, böylece ikinci kez çağrıldığında saniyeler sürer.
 
     from concurrent.futures import ProcessPoolExecutor
     from final.dataset import feature_cache_path

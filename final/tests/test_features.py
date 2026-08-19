@@ -1,9 +1,6 @@
-'''Final öznitelik çıkarıcıları için boyut/determinizm testleri.
-
-Testler corpus dosyalarına bağımlı değildir: geçici dizinde sentetik bir
-ton (sinüs) üretilir ve her şey onun üzerinde doğrulanır. Böylece testler
-her makinede, veri indirilmeden çalışır.
-'''
+# Final öznitelik çıkarıcıları için boyut/determinizm testleri.
+#
+# Testler corpus dosyalarına bağımlı değildir: geçici dizinde sentetik bir ton (sinüs) üretilir ve her şey onun üzerinde doğrulanır. Böylece testler her makinede, veri indirilmeden çalışır.
 
 from __future__ import annotations
 
@@ -27,8 +24,7 @@ from final.features import (  # noqa: E402
 
 
 @pytest.fixture()
-def wav_path(tmp_path: Path) -> Path:
-    '''1,5 saniyelik sentetik 220 Hz ton — testlerin sabit girdisi.'''
+def wav_path(tmp_path: Path) -> Path:  # 1,5 saniyelik sentetik 220 Hz ton — testlerin sabit girdisi.
 
     sr = 16_000
     t = np.linspace(0, 1.5, int(sr * 1.5), endpoint=False)
@@ -38,8 +34,7 @@ def wav_path(tmp_path: Path) -> Path:
     return path
 
 
-def test_mel_image_shape_and_determinism(wav_path: Path) -> None:
-    '''Mel görüntüsü: doğru boyut, sonlu değerler ve iki çağrıda aynı sonuç.'''
+def test_mel_image_shape_and_determinism(wav_path: Path) -> None:  # Mel görüntüsü: doğru boyut, sonlu değerler ve iki çağrıda aynı sonuç.
 
     config = MelImageConfig(n_mels=32, n_frames=48)
     first = extract_mel_image(wav_path, config)
@@ -51,8 +46,7 @@ def test_mel_image_shape_and_determinism(wav_path: Path) -> None:
     np.testing.assert_array_equal(first, second)
 
 
-def test_interval_starts_cover_short_and_long_audio() -> None:
-    '''Aralık yerleşimi hem kısa hem uzun kayıtta doğru çalışmalı.'''
+def test_interval_starts_cover_short_and_long_audio() -> None:  # Aralık yerleşimi hem kısa hem uzun kayıtta doğru çalışmalı.
 
     config = IntervalConfig(n_intervals=8, interval_ms=300)
     window = config.interval_samples
@@ -66,8 +60,7 @@ def test_interval_starts_cover_short_and_long_audio() -> None:
     assert long.min() == 0 and long.max() == window * 20 - window
 
 
-def test_interval_series_shape(wav_path: Path) -> None:
-    '''Aralık serisi: doğru boyut + durağan sinyalde satırlar birbirine yakın.'''
+def test_interval_series_shape(wav_path: Path) -> None:  # Aralık serisi: doğru boyut + durağan sinyalde satırlar birbirine yakın.
 
     config = IntervalConfig(n_intervals=6, interval_ms=250)
     series = extract_interval_series(wav_path, config)
@@ -78,8 +71,7 @@ def test_interval_series_shape(wav_path: Path) -> None:
     assert np.std(series[1:-1], axis=0).max() < 1.0
 
 
-def test_cache_roundtrip(wav_path: Path, tmp_path: Path) -> None:
-    '''Önbellek: ilk çağrı hesaplar, ikinci çağrı diskten okur (tekrar hesaplamaz).'''
+def test_cache_roundtrip(wav_path: Path, tmp_path: Path) -> None:  # Önbellek: ilk çağrı hesaplar, ikinci çağrı diskten okur (tekrar hesaplamaz).
 
     config = IntervalConfig(n_intervals=4, interval_ms=200)
     cache_dir = tmp_path / 'cache'
@@ -97,8 +89,7 @@ def test_cache_roundtrip(wav_path: Path, tmp_path: Path) -> None:
     np.testing.assert_array_equal(first, second)
 
 
-def test_standardizer_axes() -> None:
-    '''Z-skor doğru eksende uygulanmalı: dönüşüm sonrası ortalama ~0, std ~1.'''
+def test_standardizer_axes() -> None:  # Z-skor doğru eksende uygulanmalı: dönüşüm sonrası ortalama ~0, std ~1.
 
     rng = np.random.default_rng(0)
     # RNN durumu: [N, T, D] -> öznitelik boyutu (axis=2) başına istatistik.

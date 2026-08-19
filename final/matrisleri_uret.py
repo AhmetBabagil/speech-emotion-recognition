@@ -1,10 +1,9 @@
-'''İki karışıklık matrisini ayrı üretir:
-  * test_confusion_matrix.png = taban arama-kazananı (winner_model.pt, 44 boyut)
-    -> raporun "Yöntem 2 kazanan" bölümü kendi içinde tutarlı kalır.
-  * son_confusion_matrix.png = nihai model (improved_model.pt, jitter+kontrast 53)
-    -> sunum ve raporun nihai bölümü güncel modeli gösterir.
-Ayrıca her iki modelin test metriklerini yazdırır (tablo doldurmak için).
-'''
+# İki karışıklık matrisini ayrı üretir:
+# * test_confusion_matrix.png = taban arama-kazananı (winner_model.pt, 44 boyut)
+# -> raporun "Yöntem 2 kazanan" bölümü kendi içinde tutarlı kalır.
+# * son_confusion_matrix.png = nihai model (improved_model.pt, jitter+kontrast 53)
+# -> sunum ve raporun nihai bölümü güncel modeli gösterir.
+# Ayrıca her iki modelin test metriklerini yazdırır (tablo doldurmak için).
 
 from __future__ import annotations
 

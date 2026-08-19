@@ -1,11 +1,8 @@
-'''Parametre deneme kutusu — hoca "şunu değiştir çalıştır" derse.
-
-Aşağıdaki DEĞİŞTİR kutusundaki sayıları değiştir, betiği çalıştır: model tek
-sefer eğitilir ve test doğruluğu ekrana basılır. HİÇBİR resmi dosya (kayıtlı
-model, matris, JSON) bozulmaz — güvenle deneyebilirsin.
-
-Çalıştırma:  python final/dene_hizli.py
-'''
+# Parametre deneme kutusu — hoca "şunu değiştir çalıştır" derse.
+#
+# Aşağıdaki DEĞİŞTİR kutusundaki sayıları değiştir, betiği çalıştır: model tek sefer eğitilir ve test doğruluğu ekrana basılır. HİÇBİR resmi dosya (kayıtlı model, matris, JSON) bozulmaz — güvenle deneyebilirsin.
+#
+# Çalıştırma:  python final/dene_hizli.py
 
 from __future__ import annotations
 

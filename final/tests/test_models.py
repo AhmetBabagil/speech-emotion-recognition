@@ -1,9 +1,6 @@
-'''Final modelleri ve artırmaları için ileri-geçiş (forward) boyut testleri.
-
-Amaç: her model rastgele bir yığını alıp doğru boyutta logit üretebiliyor mu?
-Bu basit kontroller, mimari değişikliklerinde boyut uyuşmazlıklarını anında
-yakalar.
-'''
+# Final modelleri ve artırmaları için ileri-geçiş (forward) boyut testleri.
+#
+# Amaç: her model rastgele bir yığını alıp doğru boyutta logit üretebiliyor mu? Bu basit kontroller, mimari değişikliklerinde boyut uyuşmazlıklarını anında yakalar.
 
 from __future__ import annotations
 
@@ -25,8 +22,7 @@ from final.models import (  # noqa: E402
 )
 
 
-def test_cnn_forward_shape() -> None:
-    '''CNN: [B, mels, T] girdiden [B, 6] logit üretmeli.'''
+def test_cnn_forward_shape() -> None:  # CNN: [B, mels, T] girdiden [B, 6] logit üretmeli.
 
     model = MelCNN(6, CNNConfig(channels=(8, 16)))
     logits = model(torch.randn(4, 64, 128))
@@ -34,8 +30,7 @@ def test_cnn_forward_shape() -> None:
 
 
 @pytest.mark.parametrize('pooling', ['last', 'mean', 'max', 'attn'])
-def test_rnn_forward_shape_all_poolings(pooling: str) -> None:
-    '''RNN: dört havuzlama türünün DÖRDÜ de doğru boyutta çıktı vermeli.'''
+def test_rnn_forward_shape_all_poolings(pooling: str) -> None:  # RNN: dört havuzlama türünün DÖRDÜ de doğru boyutta çıktı vermeli.
 
     config = RNNConfig(hidden_size=32, num_layers=1, pooling=pooling,
                        optim=OptimSettings())
@@ -44,15 +39,13 @@ def test_rnn_forward_shape_all_poolings(pooling: str) -> None:
     assert logits.shape == (4, 6)
 
 
-def test_rnn_rejects_bad_pooling() -> None:
-    '''Geçersiz havuzlama adı sessizce kabul edilmemeli, hata vermeli.'''
+def test_rnn_rejects_bad_pooling() -> None:  # Geçersiz havuzlama adı sessizce kabul edilmemeli, hata vermeli.
 
     with pytest.raises(ValueError):
         RNNConfig(pooling='sum').validate()
 
 
-def test_spec_mask_zeroes_but_keeps_shape() -> None:
-    '''SpecAugment: boyutu korumalı, girdiyi bozmamalı, gerçekten maskelemeli.'''
+def test_spec_mask_zeroes_but_keeps_shape() -> None:  # SpecAugment: boyutu korumalı, girdiyi bozmamalı, gerçekten maskelemeli.
 
     batch = torch.ones(3, 64, 128)
     masked = SpecMask()(batch)
@@ -61,8 +54,7 @@ def test_spec_mask_zeroes_but_keeps_shape() -> None:
     assert (masked == 0.0).sum() > 0  # en az bir bölge sıfırlanmış olmalı
 
 
-def test_feature_noise_shape() -> None:
-    '''Gürültü artırması: boyut aynı kalmalı, çıktı gerçekten gürültülü olmalı.'''
+def test_feature_noise_shape() -> None:  # Gürültü artırması: boyut aynı kalmalı, çıktı gerçekten gürültülü olmalı.
 
     torch.manual_seed(0)
     batch = torch.zeros(3, 24, 44)

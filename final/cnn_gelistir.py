@@ -1,25 +1,20 @@
-'''Yöntem 1 (CNN) geliştirme deneyleri: hangi teknik doğruluğu artırıyor?
-
-Her varyant, aynı mel öznitelikleri üzerinde 5 kez eğitilir (GPU tam
-deterministik olmadığı için tek koşu güvenilmez). SEÇİM ÖLÇÜTÜ geçerleme
-(validation) macro-F1'idir — test'e bakarak seçmek sızıntı olur; test yalnızca
-bilgi amaçlı raporlanır. Kazanan (geçerlemede en iyi) varyant, resmî modele
-terfi adayıdır.
-
-Denenen teknikler:
-  * taban          : mevcut kazanan CNN, artırma yok (dürüst 5-koşu tabanı)
-  * specaug        : SpecAugment maskeleme (mevcut geliştirme)
-  * specaug_guclu  : daha çok/geniş maske
-  * label_smooth   : etiket yumuşatma 0.1 (aşırı güvene ceza)
-  * mixup          : mixup alpha 0.2 (örnek+etiket karıştırma)
-  * specaug_ls     : specaug + label smoothing (birlikte)
-  * derin          : 4 bloklu daha derin ağ (32-64-128-256)
-  * genis_drop     : daha geniş + yüksek dropout (48-96-192, drop 0.4)
-
-Örnek:
-    python final/cnn_gelistir.py --kosu 5
-    python final/cnn_gelistir.py --kosu 1 --sadece taban specaug   # hızlı deneme
-'''
+# Yöntem 1 (CNN) geliştirme deneyleri: hangi teknik doğruluğu artırıyor?
+#
+# Her varyant, aynı mel öznitelikleri üzerinde 5 kez eğitilir (GPU tam deterministik olmadığı için tek koşu güvenilmez). SEÇİM ÖLÇÜTÜ geçerleme (validation) macro-F1'idir — test'e bakarak seçmek sızıntı olur; test yalnızca bilgi amaçlı raporlanır. Kazanan (geçerlemede en iyi) varyant, resmî modele terfi adayıdır.
+#
+# Denenen teknikler:
+# * taban          : mevcut kazanan CNN, artırma yok (dürüst 5-koşu tabanı)
+# * specaug        : SpecAugment maskeleme (mevcut geliştirme)
+# * specaug_guclu  : daha çok/geniş maske
+# * label_smooth   : etiket yumuşatma 0.1 (aşırı güvene ceza)
+# * mixup          : mixup alpha 0.2 (örnek+etiket karıştırma)
+# * specaug_ls     : specaug + label smoothing (birlikte)
+# * derin          : 4 bloklu daha derin ağ (32-64-128-256)
+# * genis_drop     : daha geniş + yüksek dropout (48-96-192, drop 0.4)
+#
+# Örnek:
+# python final/cnn_gelistir.py --kosu 5
+# python final/cnn_gelistir.py --kosu 1 --sadece taban specaug   # hızlı deneme
 
 from __future__ import annotations
 
@@ -54,8 +49,7 @@ OPT = OptimSettings(batch_size=16, learning_rate=1e-3, weight_decay=1e-4, patien
 TABAN_CFG = CNNConfig(channels=(32, 64, 128), dropout=0.3, optim=OPT)
 
 
-def varyantlar():
-    '''(ad, model_cfg, transform, label_smoothing, mixup_alpha) listesi.'''
+def varyantlar():  # (ad, model_cfg, transform, label_smoothing, mixup_alpha) listesi.
     return [
         ('taban',         TABAN_CFG, None, 0.0, 0.0),
         ('specaug',       TABAN_CFG, SpecMask(), 0.0, 0.0),

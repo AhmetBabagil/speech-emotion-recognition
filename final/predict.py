@@ -1,15 +1,10 @@
-'''Eğitilmiş bir final modeliyle bir veya daha çok WAV dosyasının duygusunu tahmin eder.
-
-run_experiment.py / improve.py'nin kaydettiği kontrol noktası (checkpoint)
-dosyaları; model ağırlıklarını, öznitelik ayarlarını VE normalizasyon
-parametrelerini birlikte taşır. Bu sayede tahmin sırasında ön işleme,
-eğitimdekiyle birebir aynı yapılır — "eğitimde başka, tahminde başka
-ön işleme" hatası yapısal olarak imkânsızdır.
-
-Örnekler:
-    python final/predict.py data/raw/cremad/AudioWAV/1001_DFA_ANG_XX.wav
-    python final/predict.py kayit.wav --model final/outputs/cremad/rnn/winner_model.pt
-'''
+# Eğitilmiş bir final modeliyle bir veya daha çok WAV dosyasının duygusunu tahmin eder.
+#
+# run_experiment.py / improve.py'nin kaydettiği kontrol noktası (checkpoint) dosyaları; model ağırlıklarını, öznitelik ayarlarını VE normalizasyon parametrelerini birlikte taşır. Bu sayede tahmin sırasında ön işleme, eğitimdekiyle birebir aynı yapılır — "eğitimde başka, tahminde başka ön işleme" hatası yapısal olarak imkânsızdır.
+#
+# Örnekler:
+# python final/predict.py data/raw/cremad/AudioWAV/1001_DFA_ANG_XX.wav
+# python final/predict.py kayit.wav --model final/outputs/cremad/rnn/winner_model.pt
 
 from __future__ import annotations
 
@@ -34,8 +29,7 @@ from ser.constants import CANONICAL_EMOTIONS, NUM_CLASSES  # noqa: E402
 
 
 def load_checkpoint(path: str | Path, device: torch.device):
-    '''Diskteki kayıttan (model, öznitelik ayarı, çıkarım fonksiyonu,
-    normalizasyon) dörtlüsünü geri kurar.'''
+    # Diskteki kayıttan (model, öznitelik ayarı, çıkarım fonksiyonu, normalizasyon) dörtlüsünü geri kurar.
 
     # Kendi eğitim betiklerimizin yazdığı güvenilir yerel dosya; içinde
     # numpy dizileri olduğundan yalnızca-ağırlık (weights_only) yükleyici
@@ -74,8 +68,7 @@ def load_checkpoint(path: str | Path, device: torch.device):
     return model, feature_cfg, extract_fn, standardizer
 
 
-def predict(paths, model, feature_cfg, extract_fn, standardizer, device):
-    '''Dosya listesini modele verir; [N, 6] boyutlu olasılık matrisi döndürür.'''
+def predict(paths, model, feature_cfg, extract_fn, standardizer, device):  # Dosya listesini modele verir; [N, 6] boyutlu olasılık matrisi döndürür.
 
     # Ön işleme zinciri eğitimdekiyle aynı: öznitelik -> normalizasyon -> model.
     features = np.stack([extract_fn(path, feature_cfg) for path in paths])

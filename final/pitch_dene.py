@@ -1,15 +1,11 @@
-'''Pitch'li tek yapılandırmayı (resmî kazanan: 32x200 BiGRU) eğitip test eder.
-
-Amaç: "Aralık serisine pitch (F0) eklemek Yöntem 2'yi iyileştiriyor mu?"
-sorusunu tek koşuda cevaplamak. Resmî kazananın AYNI model ayarlarını
-kullanır; tek fark özniteliklerin pitch içermesidir (44 -> 47). Böylece
-karşılaştırma adil: değişen tek şey pitch.
-
-Önce öznitelikler hazır olmalı:
-    python final/hizli_cikarma.py --sadece 32 200 --islemler 14
-Sonra:
-    python final/pitch_dene.py
-'''
+# Pitch'li tek yapılandırmayı (resmî kazanan: 32x200 BiGRU) eğitip test eder.
+#
+# Amaç: "Aralık serisine pitch (F0) eklemek Yöntem 2'yi iyileştiriyor mu?" sorusunu tek koşuda cevaplamak. Resmî kazananın AYNI model ayarlarını kullanır; tek fark özniteliklerin pitch içermesidir (44 -> 47). Böylece karşılaştırma adil: değişen tek şey pitch.
+#
+# Önce öznitelikler hazır olmalı:
+# python final/hizli_cikarma.py --sadece 32 200 --islemler 14
+# Sonra:
+# python final/pitch_dene.py
 
 from __future__ import annotations
 

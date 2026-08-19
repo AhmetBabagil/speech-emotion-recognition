@@ -1,15 +1,11 @@
-'''Demo: kaydedilmiş final modellerini WAV dosyalarında çalıştırır,
-iki yöntemin çıktısını yan yana gösterir.
-
-Yönergenin 8. bölümünün birebir karşılığı: girdiler ya iyi/kötü örnek
-dizininden RASTGELE seçilir ya da komut satırında ADIYLA/YOLUYLA verilir;
-her girdi iki yöntemden geçirilip sonuçlarıyla gösterilir.
-
-Örnekler:
-    python final/demo.py --rastgele 3
-    python final/demo.py final/demo_ornekleri/1091_IEO_FEA_HI.wav
-    python final/demo.py --dizin final/demo_ornekleri --rastgele 5
-'''
+# Demo: kaydedilmiş final modellerini WAV dosyalarında çalıştırır, iki yöntemin çıktısını yan yana gösterir.
+#
+# Yönergenin 8. bölümünün birebir karşılığı: girdiler ya iyi/kötü örnek dizininden RASTGELE seçilir ya da komut satırında ADIYLA/YOLUYLA verilir; her girdi iki yöntemden geçirilip sonuçlarıyla gösterilir.
+#
+# Örnekler:
+# python final/demo.py --rastgele 3
+# python final/demo.py final/demo_ornekleri/1091_IEO_FEA_HI.wav
+# python final/demo.py --dizin final/demo_ornekleri --rastgele 5
 
 from __future__ import annotations
 
@@ -44,11 +40,9 @@ MODEL_PATHS = {
 
 
 def true_label_from_name(path: Path) -> str | None:
-    '''CREMA-D dosya adının 3. parçası duygu kodudur (ör. ..._ANG_... -> angry).
-
-    Bu sayede demo, tahminin doğru mu yanlış mı olduğunu (✓/✗) etiketli
-    dosyalarda otomatik gösterebilir.
-    '''
+    # CREMA-D dosya adının 3. parçası duygu kodudur (ör. ..._ANG_... -> angry).
+    #
+    # Bu sayede demo, tahminin doğru mu yanlış mı olduğunu (✓/✗) etiketli dosyalarda otomatik gösterebilir.
 
     parts = path.stem.split('_')
     if len(parts) >= 3:
@@ -56,8 +50,7 @@ def true_label_from_name(path: Path) -> str | None:
     return None
 
 
-def load_methods(device: torch.device) -> dict:
-    '''İki yöntemin modellerini diskten yükler.'''
+def load_methods(device: torch.device) -> dict:  # İki yöntemin modellerini diskten yükler.
 
     methods = {}
     for name, candidates in MODEL_PATHS.items():
@@ -71,8 +64,7 @@ def load_methods(device: torch.device) -> dict:
     return methods
 
 
-def run_demo(paths: list[Path], methods: dict, device: torch.device) -> None:
-    '''Her dosyayı iki yöntemden geçirir; tahmin + ✓/✗ + ilk 3 olasılığı basar.'''
+def run_demo(paths: list[Path], methods: dict, device: torch.device) -> None:  # Her dosyayı iki yöntemden geçirir; tahmin + ✓/✗ + ilk 3 olasılığı basar.
 
     for path in paths:
         truth = true_label_from_name(path)

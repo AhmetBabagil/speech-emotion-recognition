@@ -1,13 +1,11 @@
-'''Final deneylerini (iki yöntem) tek corpus üzerinde koşturan komut satırı aracı.
-
-Örnekler:
-    python final/run_experiment.py --grid-mode report --feature-workers 8
-    python final/run_experiment.py --grid-mode quick --limit-per-split 60
-    python final/run_experiment.py --methods rnn --grid-mode report
-
-Asıl iş final/pipeline.py'dedir; bu dosya yalnızca argümanları toplayıp
-run_all'a iletir.
-'''
+# Final deneylerini (iki yöntem) tek corpus üzerinde koşturan komut satırı aracı.
+#
+# Örnekler:
+# python final/run_experiment.py --grid-mode report --feature-workers 8
+# python final/run_experiment.py --grid-mode quick --limit-per-split 60
+# python final/run_experiment.py --methods rnn --grid-mode report
+#
+# Asıl iş final/pipeline.py'dedir; bu dosya yalnızca argümanları toplayıp run_all'a iletir.
 
 from __future__ import annotations
 

@@ -1,15 +1,14 @@
-"""Derin modeller için eğitim döngüsü (log-mel üzerinde CNN, dalga formu üzerinde wav2vec2).
-
-Bu modül modern bir eğitim döngüsünün "iyi uygulamalarını" bir arada içerir:
-  * Sınıf-ağırlıklı kayıp (dengesiz veri için) + etiket yumuşatma,
-  * Kosinüs öğrenme hızı çizelgesi (lr'yi yumuşakça sıfıra indirir),
-  * AMP — otomatik karışık hassasiyet (GPU'da float16 ile hız/bellek kazancı),
-  * Gradyan kırpma (patlayan gradyanlara karşı sigorta),
-  * Doğrulama metriğine göre erken durdurma (overfitting başlayınca durur),
-  * En iyi epoch'un checkpoint'ini kaydetme ve test için geri yükleme,
-  * Test kümesi raporu (metrics.json + confusion matrix PNG).
-Dönüş değeri: test metrikleri sözlüğü.
-"""
+# Derin modeller için eğitim döngüsü (log-mel üzerinde CNN, dalga formu üzerinde wav2vec2).
+#
+# Bu modül modern bir eğitim döngüsünün "iyi uygulamalarını" bir arada içerir:
+# * Sınıf-ağırlıklı kayıp (dengesiz veri için) + etiket yumuşatma,
+# * Kosinüs öğrenme hızı çizelgesi (lr'yi yumuşakça sıfıra indirir),
+# * AMP — otomatik karışık hassasiyet (GPU'da float16 ile hız/bellek kazancı),
+# * Gradyan kırpma (patlayan gradyanlara karşı sigorta),
+# * Doğrulama metriğine göre erken durdurma (overfitting başlayınca durur),
+# * En iyi epoch'un checkpoint'ini kaydetme ve test için geri yükleme,
+# * Test kümesi raporu (metrics.json + confusion matrix PNG).
+# Dönüş değeri: test metrikleri sözlüğü.
 
 from __future__ import annotations
 
@@ -31,12 +30,9 @@ log = get_logger(__name__)
 
 
 def _make_loaders(cfg, train_df, val_df, test_df, device):
-    """Üç fold için DataLoader'ları kurar (train karıştırılır, val/test asla).
-
-    Modelin türüne göre veri temsili seçilir: wav2vec2 ham dalga formu ister,
-    CNN log-mel spektrogram ister — ikisi de aynı SERDataset sınıfından
-    ``mode`` parametresiyle elde edilir.
-    """
+    # Üç fold için DataLoader'ları kurar (train karıştırılır, val/test asla).
+    #
+    # Modelin türüne göre veri temsili seçilir: wav2vec2 ham dalga formu ister, CNN log-mel spektrogram ister — ikisi de aynı SERDataset sınıfından ``mode`` parametresiyle elde edilir.
     import torch
     from torch.utils.data import DataLoader
 
@@ -68,14 +64,9 @@ def _make_loaders(cfg, train_df, val_df, test_df, device):
 
 
 def _amp_tools(cfg, device):
-    """AMP (karışık hassasiyet) araçlarını hazırlar: (scaler, autocast fabrikası).
-
-    AMP fikri: ileri/geri geçişin çoğunu float16 ile yapmak (hızlı, az bellek),
-    fakat float16'nın dar aralığında küçük gradyanlar sıfıra yuvarlanabildiği
-    için kaybı önce büyütüp (scale) sonra geri küçültmek — GradScaler tam bunu
-    yapar. AMP kapalıyken aynı nesneler "hiçbir şey yapmadan" çalışır; böylece
-    eğitim döngüsü tek bir kod yoluyla hem CPU hem GPU'da koşar.
-    """
+    # AMP (karışık hassasiyet) araçlarını hazırlar: (scaler, autocast fabrikası).
+    #
+    # AMP fikri: ileri/geri geçişin çoğunu float16 ile yapmak (hızlı, az bellek), fakat float16'nın dar aralığında küçük gradyanlar sıfıra yuvarlanabildiği için kaybı önce büyütüp (scale) sonra geri küçültmek — GradScaler tam bunu yapar. AMP kapalıyken aynı nesneler "hiçbir şey yapmadan" çalışır; böylece eğitim döngüsü tek bir kod yoluyla hem CPU hem GPU'da koşar.
     import torch
 
     use_amp = bool(cfg.train.amp) and device.type == "cuda"
@@ -95,8 +86,7 @@ def _amp_tools(cfg, device):
     return scaler, autocast
 
 
-def _train_one_epoch(model, loader, criterion, optimizer, scaler, autocast, device, grad_clip):
-    """Tek epoch eğitim: tüm batch'leri gezer, ortalama kaybı döndürür."""
+def _train_one_epoch(model, loader, criterion, optimizer, scaler, autocast, device, grad_clip):  # Tek epoch eğitim: tüm batch'leri gezer, ortalama kaybı döndürür.
     import torch
 
     model.train()  # Dropout/BatchNorm'u eğitim moduna al
@@ -127,8 +117,7 @@ def _train_one_epoch(model, loader, criterion, optimizer, scaler, autocast, devi
     return running / max(total, 1)
 
 
-def train_torch(cfg: Config, device=None) -> dict:
-    """Uçtan uca eğitim: veri böl, modeli kur, eğit, en iyiyi test et, raporla."""
+def train_torch(cfg: Config, device=None) -> dict:  # Uçtan uca eğitim: veri böl, modeli kur, eğit, en iyiyi test et, raporla.
     import torch
     import torch.nn as nn
 
@@ -227,12 +216,9 @@ def train_torch(cfg: Config, device=None) -> dict:
 
 
 def train_baseline(cfg: Config, kind: str = "svm") -> dict:
-    """Klasik MFCC-istatistik taban modelini (sklearn) eğitir ve değerlendirir.
-
-    Derin modellerle aynı manifest, aynı bölme ve aynı raporlama kullanılır;
-    tek fark öğrenicinin sklearn pipeline'ı olmasıdır. Böylece "derin model
-    klasik yönteme göre ne kazandırıyor?" sorusu adil şekilde yanıtlanır.
-    """
+    # Klasik MFCC-istatistik taban modelini (sklearn) eğitir ve değerlendirir.
+    #
+    # Derin modellerle aynı manifest, aynı bölme ve aynı raporlama kullanılır; tek fark öğrenicinin sklearn pipeline'ı olmasıdır. Böylece "derin model klasik yönteme göre ne kazandırıyor?" sorusu adil şekilde yanıtlanır.
     from .data import mfcc_feature_matrix
     from .models import build_baseline
 

@@ -1,20 +1,13 @@
-'''İki final yöntemi için deterministik hiperparametre adayları.
-
-Her aday, bir "öznitelik ayarı + model ayarı" İKİLİSİDİR. Bu sayede
-öznitelik düzeyindeki hiperparametreler (Yöntem 1'de mel çözünürlüğü;
-Yöntem 2'de ödevin şart koştuğu ARALIK SAYISI ve GENİŞLİĞİ) geçerleme
-kümesinde model hiperparametreleriyle tamamen aynı şekilde aranır.
-
-Listeler bilerek elle yazılmıştır (rastgele örnekleme yok): böylece aynı
-komut her koşuda aynı adayları dener ve deney tekrarlanabilir olur.
-
-Üç mod vardır:
-- quick : dakikalar içinde biten minik duman testi (2'şer aday)
-- report: rapor için ana mod — güçlü bir taban + tek-faktör değişimleri
-  (her seferde TEK ayar değişir, böylece hangi ayarın ne etki ettiği
-  tablodan doğrudan okunur)
-- full  : daha geniş kartezyen tarama (zaman varsa)
-'''
+# İki final yöntemi için deterministik hiperparametre adayları.
+#
+# Her aday, bir "öznitelik ayarı + model ayarı" İKİLİSİDİR. Bu sayede öznitelik düzeyindeki hiperparametreler (Yöntem 1'de mel çözünürlüğü; Yöntem 2'de ödevin şart koştuğu ARALIK SAYISI ve GENİŞLİĞİ) geçerleme kümesinde model hiperparametreleriyle tamamen aynı şekilde aranır.
+#
+# Listeler bilerek elle yazılmıştır (rastgele örnekleme yok): böylece aynı komut her koşuda aynı adayları dener ve deney tekrarlanabilir olur.
+#
+# Üç mod vardır: - quick : dakikalar içinde biten minik duman testi (2'şer aday) - report: rapor için ana mod — güçlü bir taban + tek-faktör değişimleri
+# (her seferde TEK ayar değişir, böylece hangi ayarın ne etki ettiği
+# tablodan doğrudan okunur)
+# - full  : daha geniş kartezyen tarama (zaman varsa)
 
 from __future__ import annotations
 
@@ -30,8 +23,7 @@ CNNCandidate = tuple[MelImageConfig, CNNConfig]
 RNNCandidate = tuple[IntervalConfig, RNNConfig]
 
 
-def _unique(candidates):
-    '''Adayları doğrular ve yinelenenleri sırayı bozmadan eler.'''
+def _unique(candidates):  # Adayları doğrular ve yinelenenleri sırayı bozmadan eler.
 
     result, seen = [], set()
     for feature_cfg, model_cfg in candidates:
@@ -50,8 +42,7 @@ CNN_BASE_FEATURES = MelImageConfig()   # 64 mel x 128 kare
 CNN_BASE_MODEL = CNNConfig()           # 32-64-128 kanal, dropout 0.3
 
 
-def cnn_space(mode: str) -> list[CNNCandidate]:
-    '''Yöntem 1 için aday listesi.'''
+def cnn_space(mode: str) -> list[CNNCandidate]:  # Yöntem 1 için aday listesi.
 
     if mode == 'quick':
         # Duman testi: küçük görüntü + küçük ağ, 2 epoch'ta biter.
@@ -96,11 +87,9 @@ def cnn_space(mode: str) -> list[CNNCandidate]:
 
 
 def cnn_refinement(winner: CNNCandidate, exclude=()) -> list[CNNCandidate]:
-    '''Geçerleme kazananının çevresinde ikinci tur yerel arama.
-
-    Mantık: geniş aramanın kazananı iyi bir bölgeyi işaret eder; o bölgede
-    her ayarı bir tık aşağı/yukarı oynatıp daha da iyisi var mı bakılır.
-    '''
+    # Geçerleme kazananının çevresinde ikinci tur yerel arama.
+    #
+    # Mantık: geniş aramanın kazananı iyi bir bölgeyi işaret eder; o bölgede her ayarı bir tık aşağı/yukarı oynatıp daha da iyisi var mı bakılır.
 
     feature_cfg, model_cfg = winner
     optim = model_cfg.optim
@@ -127,8 +116,7 @@ RNN_BASE_FEATURES = IntervalConfig()   # 24 aralık x 300 ms
 RNN_BASE_MODEL = RNNConfig()           # BiGRU 192 x 2 katman, mean pooling
 
 
-def rnn_space(mode: str) -> list[RNNCandidate]:
-    '''Yöntem 2 için aday listesi.'''
+def rnn_space(mode: str) -> list[RNNCandidate]:  # Yöntem 2 için aday listesi.
 
     if mode == 'quick':
         small = IntervalConfig(n_intervals=8, interval_ms=200)
@@ -180,11 +168,9 @@ def rnn_space(mode: str) -> list[RNNCandidate]:
 
 
 def rnn_refinement(winner: RNNCandidate, exclude=()) -> list[RNNCandidate]:
-    '''Geçerleme kazananının çevresinde ikinci tur yerel arama.
-
-    Not: aralık sayısı/genişliği de burada oynatılır — nihai kazanan
-    (32 aralık x 200 ms) tam olarak bu turda bulunmuştur.
-    '''
+    # Geçerleme kazananının çevresinde ikinci tur yerel arama.
+    #
+    # Not: aralık sayısı/genişliği de burada oynatılır — nihai kazanan (32 aralık x 200 ms) tam olarak bu turda bulunmuştur.
 
     feature_cfg, model_cfg = winner
     optim = model_cfg.optim

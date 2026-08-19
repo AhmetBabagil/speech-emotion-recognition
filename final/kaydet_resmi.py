@@ -1,14 +1,13 @@
-'''Resmi Yöntem 2 modelini (jitter+kontrast, 53 boyut) 5 koşu eğitip kaydeder.
-
-Metodoloji (dürüstlük için önemli):
-  * Manşet sayı = 5 koşunun ORTALAMASI (tek bir şanslı koşu değil).
-  * Kaydedilen model (improved_model.pt) = 5 koşu içinde GEÇERLEMEDE (validation)
-    en iyi olan koşu. Modeli test setine bakarak seçmek test sızıntısıdır; bu yüzden
-    seçimi yalnızca geçerleme macro-F1'ine göre yapıyoruz.
-  * Kaydedilen modelin karışıklık matrisi ve öğrenme eğrisi, sunumun beklediği
-    standart isimlerle (test_confusion_matrix.png, winner_learning_curve.png)
-    yeniden çizilir; böylece slaytlar güncel modeli gösterir.
-'''
+# Resmi Yöntem 2 modelini (jitter+kontrast, 53 boyut) 5 koşu eğitip kaydeder.
+#
+# Metodoloji (dürüstlük için önemli):
+# * Manşet sayı = 5 koşunun ORTALAMASI (tek bir şanslı koşu değil).
+# * Kaydedilen model (improved_model.pt) = 5 koşu içinde GEÇERLEMEDE (validation)
+# en iyi olan koşu. Modeli test setine bakarak seçmek test sızıntısıdır; bu yüzden
+# seçimi yalnızca geçerleme macro-F1'ine göre yapıyoruz.
+# * Kaydedilen modelin karışıklık matrisi ve öğrenme eğrisi, sunumun beklediği
+# standart isimlerle (test_confusion_matrix.png, winner_learning_curve.png)
+# yeniden çizilir; böylece slaytlar güncel modeli gösterir.
 
 from __future__ import annotations
 

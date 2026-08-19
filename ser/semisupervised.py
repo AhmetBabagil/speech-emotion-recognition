@@ -1,34 +1,26 @@
-"""Denetimsiz (öznitelik kümeleme) ve yarı-denetimli (azaltılmış etiket) analizler.
-
-Proje önerisinde söz verilen bileşeni gerçekler:
-"azaltılmış etiketle eğitim ve öznitelik kümeleme üzerinden yarı-denetimli/
-denetimsiz bir bileşen" — yani öznitelik kümeleme ve az etiketle eğitim
-üzerinden, duygu yapısının ne kadarının akustikte kendiliğinden var olduğunu
-ve görevin gerçekte kaç etikete ihtiyaç duyduğunu araştırır.
-
-Üç analiz de MFCC-istatistik özniteliklerini kullanır (klasik taban modelinin
-kullandığı 240 boyutlu vektörlerin aynısı). Neden? Böylece diskteki öznitelik
-önbelleği yeniden kullanılır ve her şey CPU'da hızlıca koşar; derin model
-eğitmeye gerek kalmaz.
-
-  1. cluster_analysis  — Standartlaştırılmış MFCC öznitelikleri üzerinde K-Means
-     (K = duygu sayısı). Tamamen DENETİMSİZ: kümeleri öğrenirken hiçbir etiket
-     kullanılmaz. Küme kalitesi gerçek duygularla iki şekilde ölçülür:
-     Adjusted Rand Index (ARI) ve Normalized Mutual Information (NMI) — ikisi de
-     küme numaralarının permütasyonundan bağımsızdır; ayrıca Macar (Hungarian)
-     eşleştirmesiyle küme→duygu ataması yapılıp accuracy / makro-F1 raporlanır
-     (yorumlanabilir bir "etiketsiz sınıflandırma" skoru).
-
-  2. label_efficiency  — Taban modelini etiketlerin yalnızca bir kesiriyle
-     (%1 … %100) eğitir ve test makro-F1'ini raporlar (öğrenme eğrisi).
-     Etiket azaldıkça performansın nasıl düştüğünü gösterir.
-
-  3. self_training     — YARI-DENETİMLİ pseudo-labeling (kendi kendini eğitme):
-     küçük bir etiketli çekirdekten başlayıp, etiketsiz havuzdan yüksek güvenli
-     pseudo-etiketleri yinelemeli olarak ekler ve modeli yeniden eğitir.
-     Adil kıyas için AYNI etiket bütçesiyle eğitilmiş salt-denetimli modelle
-     karşılaştırılır: etiketsiz veri gerçekten işe yarıyor mu?
-"""
+# Denetimsiz (öznitelik kümeleme) ve yarı-denetimli (azaltılmış etiket) analizler.
+#
+# Proje önerisinde söz verilen bileşeni gerçekler: "azaltılmış etiketle eğitim ve öznitelik kümeleme üzerinden yarı-denetimli/ denetimsiz bir bileşen" — yani öznitelik kümeleme ve az etiketle eğitim üzerinden, duygu yapısının ne kadarının akustikte kendiliğinden var olduğunu ve görevin gerçekte kaç etikete ihtiyaç duyduğunu araştırır.
+#
+# Üç analiz de MFCC-istatistik özniteliklerini kullanır (klasik taban modelinin kullandığı 240 boyutlu vektörlerin aynısı). Neden? Böylece diskteki öznitelik önbelleği yeniden kullanılır ve her şey CPU'da hızlıca koşar; derin model eğitmeye gerek kalmaz.
+#
+# 1. cluster_analysis  — Standartlaştırılmış MFCC öznitelikleri üzerinde K-Means
+# (K = duygu sayısı). Tamamen DENETİMSİZ: kümeleri öğrenirken hiçbir etiket
+# kullanılmaz. Küme kalitesi gerçek duygularla iki şekilde ölçülür:
+# Adjusted Rand Index (ARI) ve Normalized Mutual Information (NMI) — ikisi de
+# küme numaralarının permütasyonundan bağımsızdır; ayrıca Macar (Hungarian)
+# eşleştirmesiyle küme→duygu ataması yapılıp accuracy / makro-F1 raporlanır
+# (yorumlanabilir bir "etiketsiz sınıflandırma" skoru).
+#
+# 2. label_efficiency  — Taban modelini etiketlerin yalnızca bir kesiriyle
+# (%1 … %100) eğitir ve test makro-F1'ini raporlar (öğrenme eğrisi).
+# Etiket azaldıkça performansın nasıl düştüğünü gösterir.
+#
+# 3. self_training     — YARI-DENETİMLİ pseudo-labeling (kendi kendini eğitme):
+# küçük bir etiketli çekirdekten başlayıp, etiketsiz havuzdan yüksek güvenli
+# pseudo-etiketleri yinelemeli olarak ekler ve modeli yeniden eğitir.
+# Adil kıyas için AYNI etiket bütçesiyle eğitilmiş salt-denetimli modelle
+# karşılaştırılır: etiketsiz veri gerçekten işe yarıyor mu?
 
 from __future__ import annotations
 
@@ -52,13 +44,9 @@ log = get_logger(__name__)
 # Ortak öznitelik yükleme
 # --------------------------------------------------------------------------- #
 def _load_features(cfg: Config):
-    """(X_train, y_train, X_test, y_test) MFCC-istatistik matrislerini döndürür.
-
-    train+val birleştirilip "etiketli havuz" yapılır (bu analizlerde ayrı bir
-    doğrulama kümesine gerek yok); test ise kenarda tutulur. Bölme, projenin
-    geri kalanıyla AYNI konuşmacı-bağımsız protokolü kullanır — böylece buradaki
-    skorlar diğer deneylerle karşılaştırılabilir kalır.
-    """
+    # (X_train, y_train, X_test, y_test) MFCC-istatistik matrislerini döndürür.
+    #
+    # train+val birleştirilip "etiketli havuz" yapılır (bu analizlerde ayrı bir doğrulama kümesine gerek yok); test ise kenarda tutulur. Bölme, projenin geri kalanıyla AYNI konuşmacı-bağımsız protokolü kullanır — böylece buradaki skorlar diğer deneylerle karşılaştırılabilir kalır.
     df = pd.read_csv(cfg.data.manifest)
     train_df, val_df, test_df = prepare_splits(df, cfg.data, cfg.train.seed)
     pool_df = pd.concat([train_df, val_df], ignore_index=True)
@@ -69,13 +57,9 @@ def _load_features(cfg: Config):
 
 
 def _stratified_subset(y: np.ndarray, fraction: float, rng, min_per_class: int = 1):
-    """Sınıf-katmanlı (stratified) bir alt kümenin indekslerini döndürür.
-
-    "Katmanlı" demek: her sınıftan, o sınıfın büyüklüğüyle orantılı sayıda örnek
-    seçilir; böylece küçük kesirlerde bile sınıf dağılımı korunur. Ayrıca her
-    mevcut sınıftan EN AZ ``min_per_class`` örnek garanti edilir — yoksa %1 gibi
-    kesirlerde nadir bir sınıf tamamen boş kalır ve eğitim o sınıfı hiç göremezdi.
-    """
+    # Sınıf-katmanlı (stratified) bir alt kümenin indekslerini döndürür.
+    #
+    # "Katmanlı" demek: her sınıftan, o sınıfın büyüklüğüyle orantılı sayıda örnek seçilir; böylece küçük kesirlerde bile sınıf dağılımı korunur. Ayrıca her mevcut sınıftan EN AZ ``min_per_class`` örnek garanti edilir — yoksa %1 gibi kesirlerde nadir bir sınıf tamamen boş kalır ve eğitim o sınıfı hiç göremezdi.
     idx = []
     for c in np.unique(y):
         c_idx = np.where(y == c)[0]
@@ -91,12 +75,9 @@ def _stratified_subset(y: np.ndarray, fraction: float, rng, min_per_class: int =
 # 1. Denetimsiz kümeleme
 # --------------------------------------------------------------------------- #
 def cluster_analysis(cfg: Config, out_dir: Path, n_clusters: int | None = None) -> dict:
-    """K-Means kümelerinin gerçek duygularla ne kadar örtüştüğünü ölçer.
-
-    Sorduğu soru: "Etiketlere hiç bakmadan, akustik öznitelikler duygulara göre
-    kendiliğinden öbekleniyor mu?" Yanıt ARI/NMI (etiket-permütasyonundan
-    bağımsız uyum ölçüleri) ve Hungarian-eşleşmeli accuracy ile verilir.
-    """
+    # K-Means kümelerinin gerçek duygularla ne kadar örtüştüğünü ölçer.
+    #
+    # Sorduğu soru: "Etiketlere hiç bakmadan, akustik öznitelikler duygulara göre kendiliğinden öbekleniyor mu?" Yanıt ARI/NMI (etiket-permütasyonundan bağımsız uyum ölçüleri) ve Hungarian-eşleşmeli accuracy ile verilir.
     from sklearn.cluster import KMeans
     from sklearn.preprocessing import StandardScaler
     from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
@@ -170,11 +151,9 @@ DEFAULT_FRACTIONS = (0.01, 0.05, 0.10, 0.25, 0.50, 1.0)
 
 def label_efficiency(cfg: Config, out_dir: Path, fractions=DEFAULT_FRACTIONS,
                      kind: str = "logreg") -> list[dict]:
-    """Her etiket kesiri için taban modeli eğitir, test skorlarını toplar.
-
-    Varsayılan sınıflandırıcı logreg'dir çünkü hızlıdır ve bu deneyde amaç
-    mutlak en iyi skor değil, kesirler arasındaki EĞİLİMİ görmektir.
-    """
+    # Her etiket kesiri için taban modeli eğitir, test skorlarını toplar.
+    #
+    # Varsayılan sınıflandırıcı logreg'dir çünkü hızlıdır ve bu deneyde amaç mutlak en iyi skor değil, kesirler arasındaki EĞİLİMİ görmektir.
     out_dir = ensure_dir(out_dir)
     X_tr, y_tr, X_te, y_te = _load_features(cfg)
     rng = np.random.default_rng(cfg.train.seed)
@@ -198,8 +177,7 @@ def label_efficiency(cfg: Config, out_dir: Path, fractions=DEFAULT_FRACTIONS,
     return rows
 
 
-def _plot_label_curve(rows, out_path):
-    """Öğrenme eğrisini çizer: x = etiket yüzdesi (log ölçek), y = test skoru."""
+def _plot_label_curve(rows, out_path):  # Öğrenme eğrisini çizer: x = etiket yüzdesi (log ölçek), y = test skoru.
     import matplotlib
     matplotlib.use("Agg")  # GUI'siz çizim (dosyaya)
     import matplotlib.pyplot as plt
@@ -229,14 +207,9 @@ def _plot_label_curve(rows, out_path):
 # --------------------------------------------------------------------------- #
 def self_training(cfg: Config, out_dir: Path, label_fraction: float = 0.10,
                   threshold: float = 0.80, iterations: int = 10) -> dict:
-    """Pseudo-labeling ile yarı-denetimli eğitim ve salt-denetimli kıyası.
-
-    Fikir: az sayıda gerçek etiketle bir model eğit; etiketsiz havuzda modelin
-    ÇOK emin olduğu (olasılık >= threshold) tahminleri "sanki gerçek etiketmiş
-    gibi" eğitim kümesine ekle; modeli yeniden eğit; tekrarla. Eşik yüksek
-    tutulur çünkü yanlış pseudo-etiketler hatayı besleyip büyütür
-    (confirmation bias) — kaliteli az örnek, bol gürültülü örnekten iyidir.
-    """
+    # Pseudo-labeling ile yarı-denetimli eğitim ve salt-denetimli kıyası.
+    #
+    # Fikir: az sayıda gerçek etiketle bir model eğit; etiketsiz havuzda modelin ÇOK emin olduğu (olasılık >= threshold) tahminleri "sanki gerçek etiketmiş gibi" eğitim kümesine ekle; modeli yeniden eğit; tekrarla. Eşik yüksek tutulur çünkü yanlış pseudo-etiketler hatayı besleyip büyütür (confirmation bias) — kaliteli az örnek, bol gürültülü örnekten iyidir.
     out_dir = ensure_dir(out_dir)
     X_tr, y_tr, X_te, y_te = _load_features(cfg)
     rng = np.random.default_rng(cfg.train.seed)
@@ -298,8 +271,7 @@ def self_training(cfg: Config, out_dir: Path, label_fraction: float = 0.10,
 # --------------------------------------------------------------------------- #
 # Sürücü (üç analizi arka arkaya koşan giriş noktası)
 # --------------------------------------------------------------------------- #
-def run_all(cfg: Config) -> dict:
-    """Üç analizi de çalıştırır ve tek bir özet JSON'da toplar."""
+def run_all(cfg: Config) -> dict:  # Üç analizi de çalıştırır ve tek bir özet JSON'da toplar.
     set_seed(cfg.train.seed)
     out_dir = ensure_dir(Path(cfg.output_dir) / cfg.experiment)
     # Config'i çıktı klasörüne kaydet: bu sonuçlar hangi ayarlarla üretildi,

@@ -1,20 +1,15 @@
-"""MELD ham verisini indirir ve ffmpeg ile kayıt-başına ses çıkarır.
-
-MELD, "Friends" dizisinden alınmış ÇOK KİPLİ (video+ses+metin) bir veri
-kümesidir; bize ise yalnızca ses lazım. Bu modülün işi ham .mp4 kliplerden
-projenin kullandığı 16 kHz mono WAV'ları üretmektir.
-
-İşlem hattı:
-  1. MELD.Raw.tar.gz'yi indir (~10 GB; kaldığı yerden devam edebilir).
-  2. Dış arşivi aç, sonra iç içe train/dev/test tarball'larını
-     ``<dest>/video/<split>/`` altına çıkar.
-  3. Duygusu ortak altıda olan HER kayıt için .mp4'ü ffmpeg ile
-     ``<dest>/audio/<split>/diaX_uttY.wav`` konumunda 16 kHz mono WAV'a çevir.
-
-Yalnızca ortak-altı kayıtlar dönüştürülür (``surprise`` atlanır); bu hem zaman
-hem disk tasarrufudur — nasılsa o klipler manifest'e hiç girmeyecek.
-Bozuk/sessiz klipler loglanıp atlanır, koşuyu düşürmez.
-"""
+# MELD ham verisini indirir ve ffmpeg ile kayıt-başına ses çıkarır.
+#
+# MELD, "Friends" dizisinden alınmış ÇOK KİPLİ (video+ses+metin) bir veri kümesidir; bize ise yalnızca ses lazım. Bu modülün işi ham .mp4 kliplerden projenin kullandığı 16 kHz mono WAV'ları üretmektir.
+#
+# İşlem hattı:
+# 1. MELD.Raw.tar.gz'yi indir (~10 GB; kaldığı yerden devam edebilir).
+# 2. Dış arşivi aç, sonra iç içe train/dev/test tarball'larını
+# ``<dest>/video/<split>/`` altına çıkar.
+# 3. Duygusu ortak altıda olan HER kayıt için .mp4'ü ffmpeg ile
+# ``<dest>/audio/<split>/diaX_uttY.wav`` konumunda 16 kHz mono WAV'a çevir.
+#
+# Yalnızca ortak-altı kayıtlar dönüştürülür (``surprise`` atlanır); bu hem zaman hem disk tasarrufudur — nasılsa o klipler manifest'e hiç girmeyecek. Bozuk/sessiz klipler loglanıp atlanır, koşuyu düşürmez.
 
 from __future__ import annotations
 
@@ -39,11 +34,9 @@ SPLIT_CSV = {"train": "train_sent_emo.csv", "dev": "dev_sent_emo.csv", "test": "
 # İndirme
 # --------------------------------------------------------------------------- #
 def _download(url: str, out_path: Path) -> Path:
-    """Tek indirme geçişi; dosya varsa HTTP Range ile kaldığı yerden sürdürür.
-
-    10 GB'lık bir dosyada bağlantı kopması neredeyse kesindir; Range başlığı
-    sayesinde her deneme sıfırdan değil, eksik kısımdan başlar.
-    """
+    # Tek indirme geçişi; dosya varsa HTTP Range ile kaldığı yerden sürdürür.
+    #
+    # 10 GB'lık bir dosyada bağlantı kopması neredeyse kesindir; Range başlığı sayesinde her deneme sıfırdan değil, eksik kısımdan başlar.
     from tqdm import tqdm
 
     out_path = Path(out_path)
@@ -78,11 +71,9 @@ def _download(url: str, out_path: Path) -> Path:
 
 
 def _remote_size(url: str) -> int | None:
-    """Uzak dosyanın Content-Length'i; öğrenilemezse None.
-
-    HEAD isteği gövdeyi indirmeden yalnızca başlıkları alır — "indirme bitti mi?"
-    sorusunu cevaplamak için hedef boyutu böyle öğreniriz.
-    """
+    # Uzak dosyanın Content-Length'i; öğrenilemezse None.
+    #
+    # HEAD isteği gövdeyi indirmeden yalnızca başlıkları alır — "indirme bitti mi?" sorusunu cevaplamak için hedef boyutu böyle öğreniriz.
     try:
         req = urllib.request.Request(url, method="HEAD")
         with urllib.request.urlopen(req, timeout=60) as r:
@@ -94,12 +85,9 @@ def _remote_size(url: str) -> int | None:
 
 
 def _ensure_complete_download(url: str, out_path: Path, max_retries: int = 10) -> None:
-    """Dosya uzak boyuta ulaşana dek devam-etmeli (resume) indirme + tekrar dener.
-
-    Kopan bağlantı diskte KESİK bir dosya bırakır; kesik bir tar'ı açmaya
-    kalkmak kafa karıştıran hatalar üretir. Bu yüzden çıkarmadan ÖNCE, disk
-    boyutu Content-Length'e eşitlenene kadar HTTP Range ile devam ederiz.
-    """
+    # Dosya uzak boyuta ulaşana dek devam-etmeli (resume) indirme + tekrar dener.
+    #
+    # Kopan bağlantı diskte KESİK bir dosya bırakır; kesik bir tar'ı açmaya kalkmak kafa karıştıran hatalar üretir. Bu yüzden çıkarmadan ÖNCE, disk boyutu Content-Length'e eşitlenene kadar HTTP Range ile devam ederiz.
     expected = _remote_size(url)
     for attempt in range(1, max_retries + 1):
         have = out_path.stat().st_size if out_path.exists() else 0
@@ -125,12 +113,9 @@ def _ensure_complete_download(url: str, out_path: Path, max_retries: int = 10) -
 
 
 def _safe_extract(tar_path: Path, out_dir: Path) -> None:
-    """Tar arşivini GÜVENLİ şekilde açar (path traversal saldırısına karşı).
-
-    Klasik "tar bombası" hilesi: arşive ``../../etc/passwd`` gibi üyeler koyup
-    hedef klasörün DIŞINA yazdırmak. Açmadan önce her üyenin çözülmüş yolunun
-    hedef klasörün altında kaldığı doğrulanır; değilse hata fırlatılır.
-    """
+    # Tar arşivini GÜVENLİ şekilde açar (path traversal saldırısına karşı).
+    #
+    # Klasik "tar bombası" hilesi: arşive ``../../etc/passwd`` gibi üyeler koyup hedef klasörün DIŞINA yazdırmak. Açmadan önce her üyenin çözülmüş yolunun hedef klasörün altında kaldığı doğrulanır; değilse hata fırlatılır.
     ensure_dir(out_dir)
     with tarfile.open(tar_path, "r:*") as tar:
         members = tar.getmembers()
@@ -142,8 +127,7 @@ def _safe_extract(tar_path: Path, out_dir: Path) -> None:
         tar.extractall(out_dir)
 
 
-def _classify_split(name: str) -> str | None:
-    """Dosya adından hangi folda ait olduğunu kestirir (train/dev/test/None)."""
+def _classify_split(name: str) -> str | None:  # Dosya adından hangi folda ait olduğunu kestirir (train/dev/test/None).
     n = name.lower()
     if "train" in n:
         return "train"
@@ -168,11 +152,9 @@ _SPLIT_DIR_HINTS = {
 
 
 def download_meld(dest: str = "data/raw/meld", keep_archive: bool = True) -> Path:
-    """MELD ham verisini indirir + açar. CSV'leri içeren klasörü döndürür.
-
-    İdempotenttir: veri zaten açılmışsa indirme/açma adımları atlanır; iç
-    tarball'lar açıldıkça silinir ki ~10 GB'lık disk alanı geri kazanılsın.
-    """
+    # MELD ham verisini indirir + açar. CSV'leri içeren klasörü döndürür.
+    #
+    # İdempotenttir: veri zaten açılmışsa indirme/açma adımları atlanır; iç tarball'lar açıldıkça silinir ki ~10 GB'lık disk alanı geri kazanılsın.
     dest = ensure_dir(dest)
     archive = dest / "MELD.Raw.tar.gz"
 
@@ -211,11 +193,9 @@ def download_meld(dest: str = "data/raw/meld", keep_archive: bool = True) -> Pat
 
 
 def _find_raw_root(root: Path) -> Path | None:
-    """İç tar'ları ya da fold CSV'lerini barındıran klasörü bulur.
-
-    Arşivin hangi derinliğe açıldığı kuruluma göre değişebildiğinden, bilinen
-    "imza" dosyaları özyinelemeli aranır ve ilkinin klasörü döndürülür.
-    """
+    # İç tar'ları ya da fold CSV'lerini barındıran klasörü bulur.
+    #
+    # Arşivin hangi derinliğe açıldığı kuruluma göre değişebildiğinden, bilinen "imza" dosyaları özyinelemeli aranır ve ilkinin klasörü döndürülür.
     for marker in ("train.tar.gz", "train_sent_emo.csv", "dev_sent_emo.csv"):
         hits = list(root.rglob(marker))
         if hits:
@@ -224,11 +204,9 @@ def _find_raw_root(root: Path) -> Path | None:
 
 
 def _split_video_dir(raw_root: Path, split: str) -> Path | None:
-    """Bir foldun video klasörünü bulur; içinde gerçekten .mp4 varsa döndürür.
-
-    Boş klasör "açılmış" sayılmaz — yarım kalmış bir çıkarma sonrası yeniden
-    açma bu sayede tetiklenir.
-    """
+    # Bir foldun video klasörünü bulur; içinde gerçekten .mp4 varsa döndürür.
+    #
+    # Boş klasör "açılmış" sayılmaz — yarım kalmış bir çıkarma sonrası yeniden açma bu sayede tetiklenir.
     for hint in _SPLIT_DIR_HINTS[split]:
         d = raw_root / hint
         if d.is_dir() and any(d.rglob("*.mp4")):
@@ -237,11 +215,9 @@ def _split_video_dir(raw_root: Path, split: str) -> Path | None:
 
 
 def _split_of_mp4(path: Path) -> str | None:
-    """Bir .mp4 yolunun hangi folda ait olduğunu klasör adından çıkarır.
-
-    replace("\\\\", "/"): Windows ve POSIX yol ayraçlarını eşitleyip alt dizge
-    aramasını platformdan bağımsız hâle getirir.
-    """
+    # Bir .mp4 yolunun hangi folda ait olduğunu klasör adından çıkarır.
+    #
+    # replace("\\", "/"): Windows ve POSIX yol ayraçlarını eşitleyip alt dizge aramasını platformdan bağımsız hâle getirir.
     s = str(path).replace("\\", "/").lower()
     if "train_splits" in s:
         return "train"
@@ -261,12 +237,9 @@ def extract_meld_audio(
     ffmpeg_bin: str = "ffmpeg",
     limit: int | None = None,
 ) -> Path:
-    """Ortak-altı MELD kayıtlarını 16 kHz mono WAV'a dönüştürür.
-
-    ``limit`` parametresi hızlı denemeler içindir (fold başına en çok o kadar
-    dönüşüm yapılır). Fold alt klasörlerini içeren ses kök dizinini
-    (``<dest>/audio``) döndürür.
-    """
+    # Ortak-altı MELD kayıtlarını 16 kHz mono WAV'a dönüştürür.
+    #
+    # ``limit`` parametresi hızlı denemeler içindir (fold başına en çok o kadar dönüşüm yapılır). Fold alt klasörlerini içeren ses kök dizinini (``<dest>/audio``) döndürür.
     from tqdm import tqdm
 
     csv_dir = Path(csv_dir)
@@ -321,12 +294,9 @@ def extract_meld_audio(
 
 
 def _ffmpeg_to_wav(ffmpeg_bin: str, mp4: Path, out_wav: Path) -> bool:
-    """Tek bir .mp4'ün ses izini 16 kHz mono WAV'a çevirir; başarıyı döndürür.
-
-    ffmpeg bayrakları: -y üzerine yaz, -loglevel error yalnız hataları göster,
-    -vn videoyu atla (yalnız ses), -ac 1 monoya indir, -ar 16000 örnekleme
-    frekansını projenin standardı 16 kHz'e ayarla.
-    """
+    # Tek bir .mp4'ün ses izini 16 kHz mono WAV'a çevirir; başarıyı döndürür.
+    #
+    # ffmpeg bayrakları: -y üzerine yaz, -loglevel error yalnız hataları göster, -vn videoyu atla (yalnız ses), -ac 1 monoya indir, -ar 16000 örnekleme frekansını projenin standardı 16 kHz'e ayarla.
     cmd = [ffmpeg_bin, "-y", "-loglevel", "error", "-i", str(mp4),
            "-vn", "-ac", "1", "-ar", "16000", str(out_wav)]
     try:

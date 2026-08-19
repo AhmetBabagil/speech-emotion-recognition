@@ -1,12 +1,6 @@
-"""Spektrogram/dalga-formu modelleri için PyTorch dataset'i + disk önbelleği,
-ve klasik taban modelinin kullandığı MFCC öznitelik-matrisi üreticisi.
-
-Önbellek neden var? Log-mel spektrogram çıkarmak (STFT + mel filtre bankası)
-her örnek için pahalıdır ve her epoch'ta aynı dosya için aynı sonucu üretir.
-Bu yüzden "tam" spektrogram bir kez hesaplanıp .npy olarak diske yazılır;
-sonraki erişimler yalnızca dosya okur. Kırpma/maskeleme gibi RASTGELE işlemler
-ise önbelleğe girmez — onlar her epoch değişmelidir ve ucuzdur.
-"""
+# Spektrogram/dalga-formu modelleri için PyTorch dataset'i + disk önbelleği, ve klasik taban modelinin kullandığı MFCC öznitelik-matrisi üreticisi.
+#
+# Önbellek neden var? Log-mel spektrogram çıkarmak (STFT + mel filtre bankası) her örnek için pahalıdır ve her epoch'ta aynı dosya için aynı sonucu üretir. Bu yüzden "tam" spektrogram bir kez hesaplanıp .npy olarak diske yazılır; sonraki erişimler yalnızca dosya okur. Kırpma/maskeleme gibi RASTGELE işlemler ise önbelleğe girmez — onlar her epoch değişmelidir ve ucuzdur.
 
 from __future__ import annotations
 
@@ -32,13 +26,9 @@ log = get_logger(__name__)
 
 
 def _feature_hash(cfg, kind: str) -> str:
-    """Önbelleklenen dizileri etkileyen öznitelik parametrelerinin kısa, kararlı hash'i.
-
-    Amaç: config'te örneğin n_mels 64'ten 80'e çıkarsa hash değişir, dolayısıyla
-    dosya adları değişir ve ESKİ önbellek yanlışlıkla okunmaz — bayat önbellek,
-    fark edilmesi çok güç hatalara yol açardı. MD5 burada güvenlik için değil,
-    yalnızca kısa ve kararlı bir anahtar üretmek için kullanılır.
-    """
+    # Önbelleklenen dizileri etkileyen öznitelik parametrelerinin kısa, kararlı hash'i.
+    #
+    # Amaç: config'te örneğin n_mels 64'ten 80'e çıkarsa hash değişir, dolayısıyla dosya adları değişir ve ESKİ önbellek yanlışlıkla okunmaz — bayat önbellek, fark edilmesi çok güç hatalara yol açardı. MD5 burada güvenlik için değil, yalnızca kısa ve kararlı bir anahtar üretmek için kullanılır.
     f = cfg.feature
     key = (
         kind,                    # "logmel" ve "mfccstat" önbellekleri ayrışsın
@@ -55,24 +45,17 @@ def _feature_hash(cfg, kind: str) -> str:
 
 
 def _cache_path(cache_dir: Path, corpus: str, audio_path: str, h: str) -> Path:
-    """Bir ses dosyasının önbellek (.npy) yolunu üretir.
-
-    Anahtara üst klasör adı da eklenir. Nedeni: MELD'in dia{D}_utt{U} kimlikleri
-    her split'te BAŞTAN başlar; yani dia0_utt0 hem audio/train, hem audio/dev,
-    hem audio/test altında FARKLI klipler olarak vardır. Yalnızca dosya gövdesi
-    (stem) ile anahtarlasaydık bu üçü çakışır ve yanlış split'in spektrogramı
-    yüklenirdi. (CREMA-D adları zaten global benzersizdir; üst klasör = AudioWAV.)
-    """
+    # Bir ses dosyasının önbellek (.npy) yolunu üretir.
+    #
+    # Anahtara üst klasör adı da eklenir. Nedeni: MELD'in dia{D}_utt{U} kimlikleri her split'te BAŞTAN başlar; yani dia0_utt0 hem audio/train, hem audio/dev, hem audio/test altında FARKLI klipler olarak vardır. Yalnızca dosya gövdesi (stem) ile anahtarlasaydık bu üçü çakışır ve yanlış split'in spektrogramı yüklenirdi. (CREMA-D adları zaten global benzersizdir; üst klasör = AudioWAV.)
     p = Path(audio_path)
     return cache_dir / corpus / f"{p.parent.name}_{p.stem}__{h}.npy"
 
 
 def _load_cached(path: Path):
-    """Önbellekten diziyi okumayı dener; dosya yoksa/bozuksa sessizce None döner.
-
-    Bozuk bir .npy (örn. yarıda kesilmiş yazma) koşuyu düşürmemeli: None dönünce
-    öznitelik yeniden hesaplanır ve önbellek tazelenir.
-    """
+    # Önbellekten diziyi okumayı dener; dosya yoksa/bozuksa sessizce None döner.
+    #
+    # Bozuk bir .npy (örn. yarıda kesilmiş yazma) koşuyu düşürmemeli: None dönünce öznitelik yeniden hesaplanır ve önbellek tazelenir.
     try:
         return np.load(path)
     except Exception:
@@ -80,13 +63,9 @@ def _load_cached(path: Path):
 
 
 def _save_cached(path: Path, arr: np.ndarray) -> None:
-    """Diziyi önbelleğe atomik biçimde yazar (önce .tmp, sonra yeniden adlandır).
-
-    Neden iki aşama? Yazma ortasında süreç ölürse yarım dosya kalır; .tmp'ye
-    yazıp sonra replace etmek, önbellekte ya TAM dosya ya HİÇ dosya olmasını
-    garantiler. Önbellek "elden geldiğince" (best-effort) bir hızlandırmadır:
-    yazma başarısız olursa yalnızca debug logu düşülür, eğitim devam eder.
-    """
+    # Diziyi önbelleğe atomik biçimde yazar (önce .tmp, sonra yeniden adlandır).
+    #
+    # Neden iki aşama? Yazma ortasında süreç ölürse yarım dosya kalır; .tmp'ye yazıp sonra replace etmek, önbellekte ya TAM dosya ya HİÇ dosya olmasını garantiler. Önbellek "elden geldiğince" (best-effort) bir hızlandırmadır: yazma başarısız olursa yalnızca debug logu düşülür, eğitim devam eder.
     try:
         ensure_dir(path.parent)
         tmp = path.with_suffix(".npy.tmp")
@@ -97,17 +76,15 @@ def _save_cached(path: Path, arr: np.ndarray) -> None:
 
 
 class SERDataset:
-    """Manifest DataFrame'i üzerinde bir torch.utils.data.Dataset.
-
-    İki mod, iki model ailesine karşılık gelir:
-      mode="logmel"   -> (FloatTensor[1, n_mels, T], label) döndürür — CNN için
-                         (baştaki 1, tek "görüntü kanalı" demektir).
-      mode="waveform" -> (FloatTensor[num_samples], label) döndürür — wav2vec2 için
-                         (o model ham dalga formunu kendi içinde işler).
-
-    Not: torch.utils.data.Dataset'ten miras almadan sadece __len__/__getitem__
-    tanımlamak yeterlidir; DataLoader "duck typing" ile bu ikisini kullanır.
-    """
+    # Manifest DataFrame'i üzerinde bir torch.utils.data.Dataset.
+    #
+    # İki mod, iki model ailesine karşılık gelir:
+    # mode="logmel"   -> (FloatTensor[1, n_mels, T], label) döndürür — CNN için
+    # (baştaki 1, tek "görüntü kanalı" demektir).
+    # mode="waveform" -> (FloatTensor[num_samples], label) döndürür — wav2vec2 için
+    # (o model ham dalga formunu kendi içinde işler).
+    #
+    # Not: torch.utils.data.Dataset'ten miras almadan sadece __len__/__getitem__ tanımlamak yeterlidir; DataLoader "duck typing" ile bu ikisini kullanır.
 
     def __init__(self, df: pd.DataFrame, cfg, *, mode: str = "logmel", train: bool = False):
         # torch importu yerelde: torch kurulmamış ortamlarda da modülün geri
@@ -144,17 +121,13 @@ class SERDataset:
         return len(self.df)
 
     def set_epoch(self, epoch: int) -> None:
-        """Epoch numarasını günceller: augmentasyon epoch'lar arasında değişir
-        ama aynı (seed, epoch, idx) üçlüsü hep aynı sonucu üretir (tekrarlanabilir)."""
+        # Epoch numarasını günceller: augmentasyon epoch'lar arasında değişir ama aynı (seed, epoch, idx) üçlüsü hep aynı sonucu üretir (tekrarlanabilir).
         self.epoch = int(epoch)
 
     def _full_logmel(self, row) -> np.ndarray:
-        """Bir kaydın TAM (kırpılmamış) log-mel spektrogramını getirir.
-
-        Sıra: önce önbelleğe bak; yoksa sesi yükle, spektrogramı hesapla,
-        önbelleğe yaz. Kırpma/normalizasyon burada YAPILMAZ — onlar örnek
-        bazında ve (eğitimde) rastgele olduğundan __getitem__'e aittir.
-        """
+        # Bir kaydın TAM (kırpılmamış) log-mel spektrogramını getirir.
+        #
+        # Sıra: önce önbelleğe bak; yoksa sesi yükle, spektrogramı hesapla, önbelleğe yaz. Kırpma/normalizasyon burada YAPILMAZ — onlar örnek bazında ve (eğitimde) rastgele olduğundan __getitem__'e aittir.
         cache_p = _cache_path(self.cache_dir, row["corpus"], row["path"], self._hash)
         if self.use_cache:
             cached = _load_cached(cache_p)
@@ -200,17 +173,15 @@ class SERDataset:
 
 
 def class_weights(df: pd.DataFrame, scheme: str = "balanced"):
-    """CrossEntropyLoss için NUM_CLASSES uzunluğunda ağırlık tensörü döndürür.
-
-    Amaç sınıf dengesizliğini telafi etmek: nadir sınıfın hatası daha pahalı
-    olur, model "hep çoğunluk sınıfını söyle" kolaycılığına kaçamaz.
-
-    "balanced": n_toplam / (n_sınıf * sayı_c)   (sklearn'ün formülü;
-                dengeli veride tüm ağırlıklar 1'e yakın çıkar)
-    "inverse" : 1 / sayı_c (ortalaması 1 olacak şekilde normalize edilir;
-                "balanced"tan daha sert bir düzeltme)
-    "none"    : hepsi 1 (ağırlıksız)
-    """
+    # CrossEntropyLoss için NUM_CLASSES uzunluğunda ağırlık tensörü döndürür.
+    #
+    # Amaç sınıf dengesizliğini telafi etmek: nadir sınıfın hatası daha pahalı olur, model "hep çoğunluk sınıfını söyle" kolaycılığına kaçamaz.
+    #
+    # "balanced": n_toplam / (n_sınıf * sayı_c)   (sklearn'ün formülü;
+    # dengeli veride tüm ağırlıklar 1'e yakın çıkar)
+    # "inverse" : 1 / sayı_c (ortalaması 1 olacak şekilde normalize edilir;
+    # "balanced"tan daha sert bir düzeltme)
+    # "none"    : hepsi 1 (ağırlıksız)
     import torch
 
     counts = np.zeros(NUM_CLASSES, dtype=np.float64)
@@ -229,15 +200,11 @@ def class_weights(df: pd.DataFrame, scheme: str = "balanced"):
 
 
 def mfcc_feature_matrix(df: pd.DataFrame, cfg, *, show_progress: bool = True):
-    """``df`` için [N, D] MFCC-istatistik matrisi ve etiket vektörü hesaplar.
-
-    Klasik (sklearn) taban modeli tarafından kullanılır. Her dosyanın öznitelik
-    vektörü ayrı bir .npy olarak önbelleklenir: aynı manifest üzerinde ikinci
-    koşu (ör. farklı sınıflandırıcı denemek) saniyeler sürer.
-
-    Okunamayan dosyalar koşuyu düşürmez: uyarı loglanır ve satır atlanır —
-    binlerce dosyalık bir işte tek bozuk WAV her şeyi durdurmasın.
-    """
+    # ``df`` için [N, D] MFCC-istatistik matrisi ve etiket vektörü hesaplar.
+    #
+    # Klasik (sklearn) taban modeli tarafından kullanılır. Her dosyanın öznitelik vektörü ayrı bir .npy olarak önbelleklenir: aynı manifest üzerinde ikinci koşu (ör. farklı sınıflandırıcı denemek) saniyeler sürer.
+    #
+    # Okunamayan dosyalar koşuyu düşürmez: uyarı loglanır ve satır atlanır — binlerce dosyalık bir işte tek bozuk WAV her şeyi durdurmasın.
     from tqdm import tqdm
 
     cache_dir = Path(cfg.data.cache_dir)

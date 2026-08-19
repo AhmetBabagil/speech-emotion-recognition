@@ -1,10 +1,6 @@
-'''İki final yöntemi için sıfırdan tanımlanmış PyTorch modelleri.
-
-Hiçbir yerde önceden eğitilmiş ağırlık ya da hazır mimari yüklenmez; her iki
-sınıflandırıcı da yalnızca torch.nn'in temel yapı taşlarıyla (Conv2d, Linear,
-GRU/LSTM, BatchNorm, Dropout) kurulur. Ödevin "hazır model yasak" kuralının
-sağlandığı yer burasıdır.
-'''
+# İki final yöntemi için sıfırdan tanımlanmış PyTorch modelleri.
+#
+# Hiçbir yerde önceden eğitilmiş ağırlık ya da hazır mimari yüklenmez; her iki sınıflandırıcı da yalnızca torch.nn'in temel yapı taşlarıyla (Conv2d, Linear, GRU/LSTM, BatchNorm, Dropout) kurulur. Ödevin "hazır model yasak" kuralının sağlandığı yer burasıdır.
 
 from __future__ import annotations
 
@@ -17,8 +13,7 @@ from torch import nn
 
 
 @dataclass(frozen=True)
-class OptimSettings:
-    '''İki yöntemin ortak eğitim (optimizasyon) hiperparametreleri.'''
+class OptimSettings:  # İki yöntemin ortak eğitim (optimizasyon) hiperparametreleri.
 
     batch_size: int = 32          # bir adımda işlenen örnek sayısı
     learning_rate: float = 3e-4   # AdamW öğrenme oranı
@@ -38,8 +33,7 @@ class OptimSettings:
 
 
 @dataclass(frozen=True)
-class CNNConfig:
-    '''Tek bir CNN hiperparametre adayı.'''
+class CNNConfig:  # Tek bir CNN hiperparametre adayı.
 
     channels: tuple[int, ...] = (32, 64, 128)  # blok başına kanal (filtre) sayısı
     dropout: float = 0.3                       # sınıflandırıcı öncesi dropout
@@ -52,8 +46,7 @@ class CNNConfig:
         if not 0.0 <= self.dropout < 1.0:
             raise ValueError(f'Geçersiz dropout: {self.dropout}.')
 
-    def to_dict(self) -> dict[str, Any]:
-        '''JSON'a yazılabilir sözlük (tuple -> list çevirisiyle).'''
+    def to_dict(self) -> dict[str, Any]:  # JSON'a yazılabilir sözlük (tuple -> list çevirisiyle).
 
         result = asdict(self)
         result['channels'] = list(self.channels)
@@ -61,14 +54,10 @@ class CNNConfig:
 
 
 class ConvBlock(nn.Module):
-    '''CNN'in temel yapı taşı: (Conv-BN-ReLU) x2 + 2x2 max pooling.
-
-    - Conv2d(3x3): yerel zaman-frekans desenlerini yakalar.
-    - BatchNorm: eğitimi kararlı ve hızlı yapar.
-    - ReLU: doğrusal olmayan aktivasyon.
-    - MaxPool(2): haritayı yarıya indirir; ağ derinleştikçe daha geniş
-      bağlama bakılmasını sağlar.
-    '''
+    # CNN'in temel yapı taşı: (Conv-BN-ReLU) x2 + 2x2 max pooling.
+    #
+    # - Conv2d(3x3): yerel zaman-frekans desenlerini yakalar. - BatchNorm: eğitimi kararlı ve hızlı yapar. - ReLU: doğrusal olmayan aktivasyon. - MaxPool(2): haritayı yarıya indirir; ağ derinleştikçe daha geniş
+    # bağlama bakılmasını sağlar.
 
     def __init__(self, in_ch: int, out_ch: int) -> None:
         super().__init__()
@@ -87,12 +76,9 @@ class ConvBlock(nn.Module):
 
 
 class MelCNN(nn.Module):
-    '''Üst üste ConvBlock'lar + global average pooling + doğrusal sınıflandırıcı.
-
-    Girdi [B, n_mels, T] mel görüntüleridir; forward içinde tek kanala
-    (unsqueeze) açılır. Global average pooling, son özellik haritasının
-    uzamsal ortalamasını aldığı için ağın kafası zaman uzunluğuna duyarsızdır.
-    '''
+    # Üst üste ConvBlock'lar + global average pooling + doğrusal sınıflandırıcı.
+    #
+    # Girdi [B, n_mels, T] mel görüntüleridir; forward içinde tek kanala (unsqueeze) açılır. Global average pooling, son özellik haritasının uzamsal ortalamasını aldığı için ağın kafası zaman uzunluğuna duyarsızdır.
 
     def __init__(self, num_classes: int, config: CNNConfig) -> None:
         super().__init__()
@@ -121,8 +107,7 @@ class MelCNN(nn.Module):
 
 
 @dataclass(frozen=True)
-class RNNConfig:
-    '''Tek bir tekrarlayan-model hiperparametre adayı.'''
+class RNNConfig:  # Tek bir tekrarlayan-model hiperparametre adayı.
 
     rnn_type: str = 'gru'          # 'gru' veya 'lstm'
     hidden_size: int = 192         # gizli durum boyutu
@@ -150,11 +135,9 @@ class RNNConfig:
 
 
 class SeqRNN(nn.Module):
-    '''Sabit uzunluktaki öznitelik serisi [B, T, D] üzerinde LSTM/GRU sınıflandırıcı.
-
-    Akış: seri -> RNN (her zaman adımına bir gizli durum) -> zaman havuzlama
-    (tüm adımları tek vektöre özetle) -> doğrusal katman -> sınıf logit'leri.
-    '''
+    # Sabit uzunluktaki öznitelik serisi [B, T, D] üzerinde LSTM/GRU sınıflandırıcı.
+    #
+    # Akış: seri -> RNN (her zaman adımına bir gizli durum) -> zaman havuzlama (tüm adımları tek vektöre özetle) -> doğrusal katman -> sınıf logit'leri.
 
     def __init__(self, input_dim: int, num_classes: int, config: RNNConfig) -> None:
         super().__init__()
@@ -203,7 +186,6 @@ class SeqRNN(nn.Module):
         return self.head(pooled)
 
 
-def count_parameters(model: nn.Module) -> int:
-    '''Modelin öğrenilebilir parametre sayısı (rapor/sunumda kullanılır).'''
+def count_parameters(model: nn.Module) -> int:  # Modelin öğrenilebilir parametre sayısı (rapor/sunumda kullanılır).
 
     return sum(p.numel() for p in model.parameters() if p.requires_grad)

@@ -1,17 +1,15 @@
-"""Metrikler, karışıklık matrisi (confusion matrix) çizimi ve torch değerlendirme döngüsü.
-
-Bütün metrikler kanonik altı sınıflık etiket uzayı üzerinden hesaplanır; böylece
-korpus-içi ve korpuslar-arası sonuçlar doğrudan karşılaştırılabilir olur.
-
-Neden bu metrikler?
-  * accuracy            : en sezgisel metrik, ama dengesiz veride yanıltıcıdır
-                          (hep "neutral" diyen bir model MELD'de yüksek accuracy alır).
-  * balanced_accuracy   : sınıf başına recall'ların ortalaması; dengesizliğe dayanıklı.
-  * macro_f1            : her sınıfın F1'inin AĞIRLIKSIZ ortalaması — azınlık
-                          sınıflara çoğunlukla eşit önem verir; projenin ana metriği.
-  * weighted_f1         : sınıf F1'lerinin destek (örnek sayısı) ağırlıklı ortalaması;
-                          literatürdeki MELD sonuçlarıyla kıyas için raporlanır.
-"""
+# Metrikler, karışıklık matrisi (confusion matrix) çizimi ve torch değerlendirme döngüsü.
+#
+# Bütün metrikler kanonik altı sınıflık etiket uzayı üzerinden hesaplanır; böylece korpus-içi ve korpuslar-arası sonuçlar doğrudan karşılaştırılabilir olur.
+#
+# Neden bu metrikler?
+# * accuracy            : en sezgisel metrik, ama dengesiz veride yanıltıcıdır
+# (hep "neutral" diyen bir model MELD'de yüksek accuracy alır).
+# * balanced_accuracy   : sınıf başına recall'ların ortalaması; dengesizliğe dayanıklı.
+# * macro_f1            : her sınıfın F1'inin AĞIRLIKSIZ ortalaması — azınlık
+# sınıflara çoğunlukla eşit önem verir; projenin ana metriği.
+# * weighted_f1         : sınıf F1'lerinin destek (örnek sayısı) ağırlıklı ortalaması;
+# literatürdeki MELD sonuçlarıyla kıyas için raporlanır.
 
 from __future__ import annotations
 
@@ -27,11 +25,9 @@ log = get_logger(__name__)
 
 
 def compute_metrics(y_true, y_pred) -> dict:
-    """Gerçek ve tahmin edilen etiketlerden tüm metrikleri tek sözlükte toplar.
-
-    sklearn importları fonksiyon içinde tutulur ki modül, sklearn kurulu
-    olmayan ortamlarda da import edilebilsin (hafif bağımlılık ilkesi).
-    """
+    # Gerçek ve tahmin edilen etiketlerden tüm metrikleri tek sözlükte toplar.
+    #
+    # sklearn importları fonksiyon içinde tutulur ki modül, sklearn kurulu olmayan ortamlarda da import edilebilsin (hafif bağımlılık ilkesi).
     from sklearn.metrics import (
         accuracy_score, f1_score, precision_recall_fscore_support, confusion_matrix,
         balanced_accuracy_score,
@@ -71,12 +67,9 @@ def compute_metrics(y_true, y_pred) -> dict:
 
 
 def save_confusion_matrix(cm, out_path, *, title: str = "Confusion matrix", normalize: bool = True):
-    """Karışıklık matrisini ısı haritası (heatmap) olarak PNG'ye kaydeder.
-
-    normalize=True iken her SATIR kendi toplamına bölünür: hücre (i, j),
-    "gerçek sınıfı i olanların yüzde kaçı j tahmin edildi" anlamına gelir.
-    Bu, sınıf boyutları eşit olmadığında ham sayılardan çok daha okunaklıdır.
-    """
+    # Karışıklık matrisini ısı haritası (heatmap) olarak PNG'ye kaydeder.
+    #
+    # normalize=True iken her SATIR kendi toplamına bölünür: hücre (i, j), "gerçek sınıfı i olanların yüzde kaçı j tahmin edildi" anlamına gelir. Bu, sınıf boyutları eşit olmadığında ham sayılardan çok daha okunaklıdır.
     import matplotlib
     # "Agg" arka ucu: ekran/pencere gerektirmeden dosyaya çizim yapar; sunucuda
     # ya da testlerde GUI olmadan da çalışması için şarttır.
@@ -108,13 +101,9 @@ def save_confusion_matrix(cm, out_path, *, title: str = "Confusion matrix", norm
 
 
 def report(y_true, y_pred, out_dir, prefix: str = "test", title: str | None = None) -> dict:
-    """Tek çağrıda tam raporlama: metrikleri hesapla, JSON + PNG yaz, özet logla.
-
-    Eğitim betiklerinin her seferinde aynı üç adımı tekrarlamaması için bu
-    "kolaylık" fonksiyonu vardır. Dosya adları ``prefix`` ile başlar
-    (örn. test_metrics.json), böylece aynı klasöre val/test raporları birlikte
-    yazılabilir.
-    """
+    # Tek çağrıda tam raporlama: metrikleri hesapla, JSON + PNG yaz, özet logla.
+    #
+    # Eğitim betiklerinin her seferinde aynı üç adımı tekrarlamaması için bu "kolaylık" fonksiyonu vardır. Dosya adları ``prefix`` ile başlar (örn. test_metrics.json), böylece aynı klasöre val/test raporları birlikte yazılabilir.
     out_dir = ensure_dir(out_dir)
     metrics = compute_metrics(y_true, y_pred)
     with open(Path(out_dir) / f"{prefix}_metrics.json", "w", encoding="utf-8") as f:
@@ -131,15 +120,13 @@ def report(y_true, y_pred, out_dir, prefix: str = "test", title: str | None = No
 
 
 def evaluate_torch(model, loader, device):
-    """Modeli ``loader`` üzerinde çalıştırır -> (y_true, y_pred, y_prob) numpy dizileri.
-
-    Değerlendirmede iki önemli ayrıntı:
-      * ``model.eval()``: Dropout kapanır, BatchNorm eğitimde biriktirdiği
-        istatistikleri kullanır — yoksa her değerlendirme farklı sonuç verirdi.
-      * ``torch.no_grad()``: gradyan hesaplanmaz; bellek ve zaman tasarrufu.
-    Olasılıklar (softmax çıktısı) da döndürülür; güven analizi ya da
-    yarı-denetimli pseudo-label seçimi gibi ileri kullanımlar için hazırdır.
-    """
+    # Modeli ``loader`` üzerinde çalıştırır -> (y_true, y_pred, y_prob) numpy dizileri.
+    #
+    # Değerlendirmede iki önemli ayrıntı:
+    # * ``model.eval()``: Dropout kapanır, BatchNorm eğitimde biriktirdiği
+    # istatistikleri kullanır — yoksa her değerlendirme farklı sonuç verirdi.
+    # * ``torch.no_grad()``: gradyan hesaplanmaz; bellek ve zaman tasarrufu.
+    # Olasılıklar (softmax çıktısı) da döndürülür; güven analizi ya da yarı-denetimli pseudo-label seçimi gibi ileri kullanımlar için hazırdır.
     import torch
 
     model.eval()

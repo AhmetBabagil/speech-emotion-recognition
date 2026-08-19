@@ -1,1 +1,1 @@
-'''Final ödevi: mel spectrogram + CNN ile aralık öznitelikleri + LSTM/GRU.'''
+# Final ödevi: mel spectrogram + CNN ile aralık öznitelikleri + LSTM/GRU.

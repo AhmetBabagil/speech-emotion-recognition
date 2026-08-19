@@ -1,18 +1,14 @@
-"""Korpus-içi ve korpuslar-arası deney matrisini çalıştırır ve özetler.
-
-Seçilen bir model için dört ayar (2x2 matris) denenir:
-    within_cremad        CREMA-D ile eğit -> CREMA-D'de test  (konuşmacı-bağımsız)
-    within_meld          MELD ile eğit    -> MELD'de test     (konuşmacı-bağımsız)
-    cross_cremad_to_meld CREMA-D ile eğit -> MELD'de test     (alan kayması / domain shift)
-    cross_meld_to_cremad MELD ile eğit    -> CREMA-D'de test  (alan kayması / domain shift)
-
-Neden bu matris? Köşegendeki (within) skorlar modelin "kendi evinde" ne kadar
-iyi olduğunu, köşegen dışındaki (cross) skorlar ise başka kayıt koşullarına /
-konuşmacılara ne kadar GENELLEDİĞİNİ gösterir. Aradaki düşüş, alan kaymasının
-bedelidir ve proje önerisindeki cross-corpus genelleme analizinin özüdür.
-
-Çıktılar: ``outputs/<exp>_crosscorpus/summary.csv`` + bir makro-F1 ısı haritası.
-"""
+# Korpus-içi ve korpuslar-arası deney matrisini çalıştırır ve özetler.
+#
+# Seçilen bir model için dört ayar (2x2 matris) denenir:
+# within_cremad        CREMA-D ile eğit -> CREMA-D'de test  (konuşmacı-bağımsız)
+# within_meld          MELD ile eğit    -> MELD'de test     (konuşmacı-bağımsız)
+# cross_cremad_to_meld CREMA-D ile eğit -> MELD'de test     (alan kayması / domain shift)
+# cross_meld_to_cremad MELD ile eğit    -> CREMA-D'de test  (alan kayması / domain shift)
+#
+# Neden bu matris? Köşegendeki (within) skorlar modelin "kendi evinde" ne kadar iyi olduğunu, köşegen dışındaki (cross) skorlar ise başka kayıt koşullarına / konuşmacılara ne kadar GENELLEDİĞİNİ gösterir. Aradaki düşüş, alan kaymasının bedelidir ve proje önerisindeki cross-corpus genelleme analizinin özüdür.
+#
+# Çıktılar: ``outputs/<exp>_crosscorpus/summary.csv`` + bir makro-F1 ısı haritası.
 
 from __future__ import annotations
 
@@ -40,11 +36,9 @@ SETTINGS = [
 
 
 def run_cross_corpus(cfg: Config, use_baseline: bool = False, baseline_kind: str = "svm") -> pd.DataFrame:
-    """Dört ayarın hepsini sırayla eğitip test eder, sonuç tablosunu döndürür.
-
-    ``use_baseline=True`` verilirse derin model yerine klasik MFCC taban modeli
-    (sklearn) kullanılır — aynı matris ucuz ve hızlı şekilde CPU'da koşulabilir.
-    """
+    # Dört ayarın hepsini sırayla eğitip test eder, sonuç tablosunu döndürür.
+    #
+    # ``use_baseline=True`` verilirse derin model yerine klasik MFCC taban modeli (sklearn) kullanılır — aynı matris ucuz ve hızlı şekilde CPU'da koşulabilir.
     # İçeride import: ser.train'in ağır bağımlılıkları (torch) yalnızca
     # gerçekten deney koşulacağında yüklensin; ayrıca döngüsel import riski azalır.
     from .train import train_torch, train_baseline
@@ -92,11 +86,9 @@ def run_cross_corpus(cfg: Config, use_baseline: bool = False, baseline_kind: str
 
 
 def _plot_matrix(df: pd.DataFrame, out_path: Path) -> None:
-    """2x2 makro-F1 matrisini ısı haritası olarak çizer.
-
-    Satırlar eğitim korpusu, sütunlar test korpusudur: köşegen = within,
-    köşegen dışı = cross. Tek bakışta genelleme kaybı görülür.
-    """
+    # 2x2 makro-F1 matrisini ısı haritası olarak çizer.
+    #
+    # Satırlar eğitim korpusu, sütunlar test korpusudur: köşegen = within, köşegen dışı = cross. Tek bakışta genelleme kaybı görülür.
     if df.empty:
         return  # hiçbir ayar başarılı olmadıysa çizecek bir şey yok
     import matplotlib

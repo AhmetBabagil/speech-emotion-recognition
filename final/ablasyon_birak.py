@@ -1,16 +1,11 @@
-'''Bırak-birini (leave-one-out) ablasyonu: her öznitelik grubunun GERÇEKTEN
-gerekli olup olmadığını ölçer.
-
-Kümülatif ablasyon "sırayla eklersem ne olur" der; bu ise tam setten her grubu
-TEK TEK çıkarıp "onsuz ne kadar kötüleşiyorum" diye bakar. Bir grubu çıkarınca
-doğruluk düşüyorsa o grup gerekli; değişmiyor/artıyorsa gereksiz.
-
-Tam set: MFCC(39) + skaler(5) + pitch(3) + jitter(2) + kontrast(7) = 56.
-(delta2 ve bant kümülatif ablasyonda zaten düştüğü için dahil değil.)
-
-Örnek:
-    python final/ablasyon_birak.py --kosu 5 --islemler 14
-'''
+# Bırak-birini (leave-one-out) ablasyonu: her öznitelik grubunun GERÇEKTEN gerekli olup olmadığını ölçer.
+#
+# Kümülatif ablasyon "sırayla eklersem ne olur" der; bu ise tam setten her grubu TEK TEK çıkarıp "onsuz ne kadar kötüleşiyorum" diye bakar. Bir grubu çıkarınca doğruluk düşüyorsa o grup gerekli; değişmiyor/artıyorsa gereksiz.
+#
+# Tam set: MFCC(39) + skaler(5) + pitch(3) + jitter(2) + kontrast(7) = 56. (delta2 ve bant kümülatif ablasyonda zaten düştüğü için dahil değil.)
+#
+# Örnek:
+# python final/ablasyon_birak.py --kosu 5 --islemler 14
 
 from __future__ import annotations
 

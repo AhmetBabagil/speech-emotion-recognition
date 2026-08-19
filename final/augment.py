@@ -1,14 +1,8 @@
-'''Geliştirme aşamasının, yalnız eğitim yığınlarına uygulanan veri artırmaları.
-
-Her iki dönüşüm de:
-- normalizasyondan geçmiş öznitelik yığınları üzerinde çalışır,
-- SADECE eğitim yığınlarına uygulanır (geçerleme/test asla değişmez),
-- önceden eğitilmiş model gerektirmez (ödev kuralına uygun).
-
-SpecAugment tarzı maskeleme (Park vd., 2019) mel-CNN için, toplamsal Gauss
-gürültüsü aralık serileri için kullanılır. Amaç: modele her epoch'ta aynı
-örneğin biraz "bozulmuş" hâlini göstererek ezberlemeyi zorlaştırmak.
-'''
+# Geliştirme aşamasının, yalnız eğitim yığınlarına uygulanan veri artırmaları.
+#
+# Her iki dönüşüm de: - normalizasyondan geçmiş öznitelik yığınları üzerinde çalışır, - SADECE eğitim yığınlarına uygulanır (geçerleme/test asla değişmez), - önceden eğitilmiş model gerektirmez (ödev kuralına uygun).
+#
+# SpecAugment tarzı maskeleme (Park vd., 2019) mel-CNN için, toplamsal Gauss gürültüsü aralık serileri için kullanılır. Amaç: modele her epoch'ta aynı örneğin biraz "bozulmuş" hâlini göstererek ezberlemeyi zorlaştırmak.
 
 from __future__ import annotations
 
@@ -19,12 +13,9 @@ import torch
 
 @dataclass(frozen=True)
 class SpecMask:
-    '''Mel görüntülerinde [B, mels, T] rastgele frekans/zaman şeritlerini sıfırlar.
-
-    Normalizasyon sonrası ortalama 0 olduğundan, maskelenen bölgeye 0 yazmak
-    "ortalama değerle örtme" anlamına gelir. Model, kaydın bir kısmı
-    görünmezken bile doğru sınıfı bulmayı öğrenmek zorunda kalır.
-    '''
+    # Mel görüntülerinde [B, mels, T] rastgele frekans/zaman şeritlerini sıfırlar.
+    #
+    # Normalizasyon sonrası ortalama 0 olduğundan, maskelenen bölgeye 0 yazmak "ortalama değerle örtme" anlamına gelir. Model, kaydın bir kısmı görünmezken bile doğru sınıfı bulmayı öğrenmek zorunda kalır.
 
     freq_masks: int = 2     # kaç frekans şeridi maskelenecek
     freq_width: int = 8     # bir frekans şeridinin en fazla genişliği (mel bandı)
@@ -60,11 +51,9 @@ class SpecMask:
 
 @dataclass(frozen=True)
 class FeatureNoise:
-    '''Normalize edilmiş aralık serilerine [B, T, D] toplamsal Gauss gürültüsü.
-
-    Öznitelikler z-skorlandığı için std=0.1, "her özniteliğe kendi doğal
-    değişkenliğinin %10'u kadar rastgele sarsıntı" demektir.
-    '''
+    # Normalize edilmiş aralık serilerine [B, T, D] toplamsal Gauss gürültüsü.
+    #
+    # Öznitelikler z-skorlandığı için std=0.1, "her özniteliğe kendi doğal değişkenliğinin %10'u kadar rastgele sarsıntı" demektir.
 
     std: float = 0.1
 

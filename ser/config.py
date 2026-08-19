@@ -1,19 +1,13 @@
-"""Deney yapılandırması: YAML'dan yüklenip YAML'a yazılabilen iç içe dataclass'lar.
-
-Neden böyle bir tasarım? Tek bir ``Config`` nesnesi; veri yükleme, öznitelik
-çıkarımı, model kurulumu, eğitim ve değerlendirme aşamalarının HEPSİNE
-parametre olarak taşınır. Böylece her aşama ses parametrelerinde (örnekleme
-frekansı, klip uzunluğu, mel bant sayısı, ...) hemfikir olur. Alternatif olan
-"her modül kendi sabitini tanımlasın" yaklaşımı, bir yerde 16 kHz diğerinde
-22 kHz kullanılması gibi sessiz uyumsuzluklara yol açardı.
-
-Dataclass kullanmanın avantajları:
-  * Varsayılan değerler kodda, tek bakışta görülür ve tip ipuçlarıyla belgelidir.
-  * ``asdict`` ile YAML'a kolayca dökülür; her deneyin yanına config.yaml
-    kaydedilerek deney tekrarlanabilirliği (reproducibility) sağlanır.
-  * YAML'daki bir bölüm eksikse varsayılanlar devreye girer; deney dosyaları
-    yalnızca değiştirmek istedikleri alanları yazar.
-"""
+# Deney yapılandırması: YAML'dan yüklenip YAML'a yazılabilen iç içe dataclass'lar.
+#
+# Neden böyle bir tasarım? Tek bir ``Config`` nesnesi; veri yükleme, öznitelik çıkarımı, model kurulumu, eğitim ve değerlendirme aşamalarının HEPSİNE parametre olarak taşınır. Böylece her aşama ses parametrelerinde (örnekleme frekansı, klip uzunluğu, mel bant sayısı, ...) hemfikir olur. Alternatif olan "her modül kendi sabitini tanımlasın" yaklaşımı, bir yerde 16 kHz diğerinde 22 kHz kullanılması gibi sessiz uyumsuzluklara yol açardı.
+#
+# Dataclass kullanmanın avantajları:
+# * Varsayılan değerler kodda, tek bakışta görülür ve tip ipuçlarıyla belgelidir.
+# * ``asdict`` ile YAML'a kolayca dökülür; her deneyin yanına config.yaml
+# kaydedilerek deney tekrarlanabilirliği (reproducibility) sağlanır.
+# * YAML'daki bir bölüm eksikse varsayılanlar devreye girer; deney dosyaları
+# yalnızca değiştirmek istedikleri alanları yazar.
 
 from __future__ import annotations
 
@@ -28,8 +22,7 @@ from .constants import SAMPLE_RATE
 
 
 @dataclass
-class AudioConfig:
-    """Ham ses ile ilgili ayarlar: örnekleme frekansı ve sabit klip süresi."""
+class AudioConfig:  # Ham ses ile ilgili ayarlar: örnekleme frekansı ve sabit klip süresi.
 
     sample_rate: int = SAMPLE_RATE
     # Spektrogram/dalga formu batch'lemek için kullanılan SABİT klip uzunluğu
@@ -47,8 +40,7 @@ class AudioConfig:
 
 
 @dataclass
-class FeatureConfig:
-    """Öznitelik çıkarımı (STFT/mel/MFCC) ve spektrogram augmentasyon ayarları."""
+class FeatureConfig:  # Öznitelik çıkarımı (STFT/mel/MFCC) ve spektrogram augmentasyon ayarları.
 
     # Ortak STFT parametreleri (hem MFCC hem mel-spektrogram bunları kullanır).
     # n_fft=1024 @16kHz => 64 ms'lik pencere: frekans çözünürlüğü ile zaman
@@ -74,8 +66,7 @@ class FeatureConfig:
 
 
 @dataclass
-class ModelConfig:
-    """Hangi modelin kurulacağı ve modele özgü hiperparametreler."""
+class ModelConfig:  # Hangi modelin kurulacağı ve modele özgü hiperparametreler.
 
     # Seçenekler: "cnn" veya "wav2vec2". (MFCC taban modeli sklearn tabanlıdır
     # ve ayrı bir yoldan kurulur; bu alanı dikkate almaz.)
@@ -95,8 +86,7 @@ class ModelConfig:
 
 
 @dataclass
-class TrainConfig:
-    """Eğitim döngüsünün hiperparametreleri."""
+class TrainConfig:  # Eğitim döngüsünün hiperparametreleri.
 
     epochs: int = 50
     batch_size: int = 32
@@ -131,8 +121,7 @@ class TrainConfig:
 
 
 @dataclass
-class DataConfig:
-    """Verinin nereden okunacağı ve nasıl bölüneceği."""
+class DataConfig:  # Verinin nereden okunacağı ve nasıl bölüneceği.
 
     # Tüm kullanılabilir kayıtları listeleyen birleşik CSV (build_manifest üretir).
     manifest: str = "data/processed/manifest.csv"
@@ -160,12 +149,9 @@ class DataConfig:
 
 @dataclass
 class Config:
-    """Tüm alt yapılandırmaları bir araya getiren kök nesne.
-
-    ``field(default_factory=...)`` kullanılır çünkü dataclass'larda değişebilir
-    (mutable) varsayılanlar doğrudan yazılamaz — her Config örneği kendi alt
-    nesnelerini almalıdır, yoksa iki deney aynı AudioConfig'i paylaşırdı.
-    """
+    # Tüm alt yapılandırmaları bir araya getiren kök nesne.
+    #
+    # ``field(default_factory=...)`` kullanılır çünkü dataclass'larda değişebilir (mutable) varsayılanlar doğrudan yazılamaz — her Config örneği kendi alt nesnelerini almalıdır, yoksa iki deney aynı AudioConfig'i paylaşırdı.
 
     experiment: str = "default"   # çıktı klasörünün adı bu isimden türetilir
     output_dir: str = "outputs"
@@ -178,11 +164,9 @@ class Config:
     # ---- Serileştirme / geri yükleme ------------------------------------------
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "Config":
-        """İç içe sözlükten Config kurar (YAML yüklemesinin arka planı).
-
-        Her alt bölüm kendi dataclass'ına çevrilir; tanınmayan anahtarlar
-        sessizce atlanır ki YAML'a eklenen bir not/açıklama yüklemeyi bozmasın.
-        """
+        # İç içe sözlükten Config kurar (YAML yüklemesinin arka planı).
+        #
+        # Her alt bölüm kendi dataclass'ına çevrilir; tanınmayan anahtarlar sessizce atlanır ki YAML'a eklenen bir not/açıklama yüklemeyi bozmasın.
         d = dict(d or {})  # kopya al: çağıranın sözlüğünü değiştirmeyelim
         sub = {
             "audio": AudioConfig,
@@ -208,11 +192,9 @@ class Config:
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "Config":
-        """Bir YAML dosyasından Config yükler.
-
-        ``safe_load`` kullanılır: YAML içinde rastgele Python nesnesi kurmaya
-        izin vermez (güvenlik). Boş dosya None döndürür; "or {}" bunu karşılar.
-        """
+        # Bir YAML dosyasından Config yükler.
+        #
+        # ``safe_load`` kullanılır: YAML içinde rastgele Python nesnesi kurmaya izin vermez (güvenlik). Boş dosya None döndürür; "or {}" bunu karşılar.
         with open(path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
         return cls.from_dict(data)
@@ -222,10 +204,9 @@ class Config:
         return asdict(self)
 
     def save(self, path: str | Path) -> None:
-        """Config'i YAML olarak diske yazar (deney kaydı/tekrarlanabilirlik).
-
-        ``sort_keys=False``: alanlar tanım sırasında kalsın; okunması kolay olur.
-        """
+        # Config'i YAML olarak diske yazar (deney kaydı/tekrarlanabilirlik).
+        #
+        # ``sort_keys=False``: alanlar tanım sırasında kalsın; okunması kolay olur.
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
@@ -233,14 +214,13 @@ class Config:
 
 
 def _build_dataclass(klass, section: dict[str, Any]):
-    """Sözlükten bir dataclass kurar; iki pürüzü giderir:
-
-    1. YAML listeleri Python list olarak gelir ama bazı alanlar tuple bekler
-       (örn. cnn_channels). Tuple tipli alanlar için list → tuple dönüşümü yapılır.
-    2. Tanınmayan anahtarlar yok sayılır. (Yazım hataları için açık bir hata
-       fırlatmak daha "temiz" olurdu; ama config dosyalarının ek not/annotation
-       taşıyabilmesi için bilinçli olarak hoşgörülü bırakıldı.)
-    """
+    # Sözlükten bir dataclass kurar; iki pürüzü giderir:
+    #
+    # 1. YAML listeleri Python list olarak gelir ama bazı alanlar tuple bekler
+    # (örn. cnn_channels). Tuple tipli alanlar için list → tuple dönüşümü yapılır.
+    # 2. Tanınmayan anahtarlar yok sayılır. (Yazım hataları için açık bir hata
+    # fırlatmak daha "temiz" olurdu; ama config dosyalarının ek not/annotation
+    # taşıyabilmesi için bilinçli olarak hoşgörülü bırakıldı.)
     valid = {f.name for f in dataclasses.fields(klass)}
     # Tip metnine bakarak tuple isteyen alanları bul ("tuple[int, ...]" gibi).
     # `from __future__ import annotations` yüzünden f.type bir dizgedir; bu

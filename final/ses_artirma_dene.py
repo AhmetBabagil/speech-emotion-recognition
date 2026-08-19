@@ -1,22 +1,13 @@
-'''Ses-uzayı (dalga formu) veri artırma denemesi — Yöntem 2 (BiGRU) için.
-
-Şimdiye kadarki tüm artırmalar spektrogram/öznitelik uzayındaydı (yalnızca
-gizleme). Bu deney dalga formunun KENDİSİNİ çeşitlendirir: her eğitim kaydının
-pitch-shift edilmiş ve hafif gürültü eklenmiş kopyalarını üreterek eğitim
-setine gerçekten yeni varyasyon ekler.
-
-Dürüst protokol: artırma YALNIZCA eğitim kayıtlarına uygulanır; geçerleme ve
-test orijinal hâlleriyle kalır. Hazır/önceden eğitilmiş model yok — sadece
-librosa ile sinyal işleme (yönerge izinli).
-
-ÖNEMLİ (Windows): torch import'ları main() İÇİNE ertelenmiştir. Böylece
-ProcessPoolExecutor işçileri (spawn ile bu modülü yeniden import eder) torch/CUDA
-yüklemez; yoksa işçiler CUDA çakışmasından takılıyor. Modül-üstü importlar sadece
-numpy + librosa + features (hafif) olmalı.
-
-Örnek:
-    python final/ses_artirma_dene.py --kosu 5 --turler pitch noise --islemler 14
-'''
+# Ses-uzayı (dalga formu) veri artırma denemesi — Yöntem 2 (BiGRU) için.
+#
+# Şimdiye kadarki tüm artırmalar spektrogram/öznitelik uzayındaydı (yalnızca gizleme). Bu deney dalga formunun KENDİSİNİ çeşitlendirir: her eğitim kaydının pitch-shift edilmiş ve hafif gürültü eklenmiş kopyalarını üreterek eğitim setine gerçekten yeni varyasyon ekler.
+#
+# Dürüst protokol: artırma YALNIZCA eğitim kayıtlarına uygulanır; geçerleme ve test orijinal hâlleriyle kalır. Hazır/önceden eğitilmiş model yok — sadece librosa ile sinyal işleme (yönerge izinli).
+#
+# ÖNEMLİ (Windows): torch import'ları main() İÇİNE ertelenmiştir. Böylece ProcessPoolExecutor işçileri (spawn ile bu modülü yeniden import eder) torch/CUDA yüklemez; yoksa işçiler CUDA çakışmasından takılıyor. Modül-üstü importlar sadece numpy + librosa + features (hafif) olmalı.
+#
+# Örnek:
+# python final/ses_artirma_dene.py --kosu 5 --turler pitch noise --islemler 14
 
 from __future__ import annotations
 
@@ -38,14 +29,12 @@ import numpy as np  # noqa: E402
 from final.features import IntervalConfig, extract_interval_series, _load_audio  # noqa: E402
 
 
-def _isci_kur() -> None:
-    '''Her işçide BLAS iş parçacıklarını 1'e sabitle.'''
+def _isci_kur() -> None:  # Her işçide BLAS iş parçacıklarını 1'e sabitle.
     for var in ('OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'NUMBA_NUM_THREADS'):
         os.environ[var] = '1'
 
 
-def _dalga_artir(audio: np.ndarray, sr: int, tur: str, seed: int) -> np.ndarray:
-    '''Dalga formuna tek bir artırma uygular (deterministik, seed'e bağlı).'''
+def _dalga_artir(audio: np.ndarray, sr: int, tur: str, seed: int) -> np.ndarray:  # Dalga formuna tek bir artırma uygular (deterministik, seed'e bağlı).
     import librosa
     rng = np.random.default_rng(seed)
     if tur == 'pitch':
@@ -59,8 +48,7 @@ def _dalga_artir(audio: np.ndarray, sr: int, tur: str, seed: int) -> np.ndarray:
     return audio
 
 
-def _isci(arg):
-    '''(yol, etiket, cfg_dict, tur, seed) -> (seri, etiket). torch kullanmaz.'''
+def _isci(arg):  # (yol, etiket, cfg_dict, tur, seed) -> (seri, etiket). torch kullanmaz.
     yol, etiket, cfg_dict, tur, seed = arg
     cfg = IntervalConfig(**cfg_dict)
     audio = _load_audio(yol, cfg.sample_rate)
@@ -70,8 +58,7 @@ def _isci(arg):
     return seri, etiket
 
 
-def artirilmis_egitim(train_df, cfg, turler, islemler):
-    '''Orijinal + artırılmış eğitim serilerini paralel üretir -> (X, y).'''
+def artirilmis_egitim(train_df, cfg, turler, islemler):  # Orijinal + artırılmış eğitim serilerini paralel üretir -> (X, y).
     isler = []
     for i, row in enumerate(train_df.itertuples()):
         yol = str(row.path); etiket = int(row.label_idx); cd = dict(cfg.__dict__)

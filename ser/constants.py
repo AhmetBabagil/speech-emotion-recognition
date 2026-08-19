@@ -1,22 +1,13 @@
-"""Kanonik (standart) etiket uzayı ve korpusa özgü etiket eşlemeleri.
-
-Bu modül, projenin tamamında kullanılan duygu sınıfları için TEK doğruluk
-kaynağıdır (single source of truth). Neden tek bir yerde? Çünkü etiket
-listesi iki farklı dosyada tanımlanırsa, bir gün biri güncellenir diğeri
-unutulur ve sınıf indeksleri sessizce kayar — bu tür bir hata modeli
-"çalışır ama yanlış öğrenir" hâle getirir ve fark etmesi çok zordur.
-
-Her iki korpus da AYNI altı kanonik etikete eşlenir; böylece korpus-içi ve
-korpuslar-arası değerlendirme tek bir ortak indeks uzayını paylaşır.
-
-Ortak altı duygu (CREMA-D ile MELD'in kesişimi):
-    angry, disgust, fear, happy, neutral, sad
-
-MELD'de ek olarak ``surprise`` (şaşkınlık) vardır; CREMA-D'de bu sınıf
-bulunmadığı için ``surprise`` → ``None`` eşlenir ve bu kayıtlar birleşik
-manifest'ten tamamen çıkarılır. Aksi hâlde iki korpusun sınıf kümeleri
-uyuşmaz ve çapraz değerlendirme adil olmazdı.
-"""
+# Kanonik (standart) etiket uzayı ve korpusa özgü etiket eşlemeleri.
+#
+# Bu modül, projenin tamamında kullanılan duygu sınıfları için TEK doğruluk kaynağıdır (single source of truth). Neden tek bir yerde? Çünkü etiket listesi iki farklı dosyada tanımlanırsa, bir gün biri güncellenir diğeri unutulur ve sınıf indeksleri sessizce kayar — bu tür bir hata modeli "çalışır ama yanlış öğrenir" hâle getirir ve fark etmesi çok zordur.
+#
+# Her iki korpus da AYNI altı kanonik etikete eşlenir; böylece korpus-içi ve korpuslar-arası değerlendirme tek bir ortak indeks uzayını paylaşır.
+#
+# Ortak altı duygu (CREMA-D ile MELD'in kesişimi):
+# angry, disgust, fear, happy, neutral, sad
+#
+# MELD'de ek olarak ``surprise`` (şaşkınlık) vardır; CREMA-D'de bu sınıf bulunmadığı için ``surprise`` → ``None`` eşlenir ve bu kayıtlar birleşik manifest'ten tamamen çıkarılır. Aksi hâlde iki korpusun sınıf kümeleri uyuşmaz ve çapraz değerlendirme adil olmazdı.
 
 from __future__ import annotations
 
@@ -79,23 +70,16 @@ CORPUS_MELD = "meld"
 
 
 def cremad_code_to_idx(code: str) -> int | None:
-    """CREMA-D'nin 3 harfli duygu kodunu kanonik sınıf indeksine çevirir.
-
-    Kod tanınmıyorsa None döner (çağıran taraf o kaydı atlar). ``.upper()``
-    sayesinde "ang" gibi küçük harfli girişler de tolere edilir — dosya
-    adlarının büyük/küçük harf tutarlılığına güvenmek zorunda kalmayız.
-    """
+    # CREMA-D'nin 3 harfli duygu kodunu kanonik sınıf indeksine çevirir.
+    #
+    # Kod tanınmıyorsa None döner (çağıran taraf o kaydı atlar). ``.upper()`` sayesinde "ang" gibi küçük harfli girişler de tolere edilir — dosya adlarının büyük/küçük harf tutarlılığına güvenmek zorunda kalmayız.
     canon = CREMAD_CODE_TO_CANONICAL.get(code.upper())
     return EMOTION_TO_IDX[canon] if canon is not None else None
 
 
 def meld_label_to_idx(label: str) -> int | None:
-    """MELD duygu dizgesini kanonik sınıf indeksine çevirir.
-
-    Ortak altılıda olmayan etiketler (örn. "surprise") için None döner.
-    ``.strip().lower()`` ile CSV'den gelebilecek baştaki/sondaki boşluklar ve
-    büyük harf farklılıkları normalize edilir; ham veriye asla körü körüne
-    güvenilmez.
-    """
+    # MELD duygu dizgesini kanonik sınıf indeksine çevirir.
+    #
+    # Ortak altılıda olmayan etiketler (örn. "surprise") için None döner. ``.strip().lower()`` ile CSV'den gelebilecek baştaki/sondaki boşluklar ve büyük harf farklılıkları normalize edilir; ham veriye asla körü körüne güvenilmez.
     canon = MELD_LABEL_TO_CANONICAL.get(label.strip().lower())
     return EMOTION_TO_IDX[canon] if canon is not None else None

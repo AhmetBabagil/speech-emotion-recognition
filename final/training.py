@@ -1,15 +1,10 @@
-'''Modelden bağımsız, ağırlıklı loss + geçerleme temelli early stopping'li eğitim.
-
-Aynı döngü hem Yöntem 1'in CNN'ini hem Yöntem 2'nin LSTM/GRU'sunu eğitir:
-tek varsayımı, modelin bir öznitelik yığınını sınıf logit'lerine çevirmesidir.
-Model seçimi geçerleme macro-F1 üzerinden yapılır ve eğitim bittiğinde en iyi
-epoch'un ağırlıkları geri yüklenir.
-
-Yönergenin iki açık şartı bu dosyada karşılanır:
-1. "Sınıf veri sayıları farklıysa hata fonksiyonunu veri sayısıyla ters
-   orantılı ağırlıklı tanımlayın"  -> inverse_frequency_weights
-2. "PyTorch ile erken durdurma yapın" -> train_with_early_stopping
-'''
+# Modelden bağımsız, ağırlıklı loss + geçerleme temelli early stopping'li eğitim.
+#
+# Aynı döngü hem Yöntem 1'in CNN'ini hem Yöntem 2'nin LSTM/GRU'sunu eğitir: tek varsayımı, modelin bir öznitelik yığınını sınıf logit'lerine çevirmesidir. Model seçimi geçerleme macro-F1 üzerinden yapılır ve eğitim bittiğinde en iyi epoch'un ağırlıkları geri yüklenir.
+#
+# Yönergenin iki açık şartı bu dosyada karşılanır: 1. "Sınıf veri sayıları farklıysa hata fonksiyonunu veri sayısıyla ters
+# orantılı ağırlıklı tanımlayın"  -> inverse_frequency_weights
+# 2. "PyTorch ile erken durdurma yapın" -> train_with_early_stopping
 
 from __future__ import annotations
 
@@ -28,11 +23,9 @@ from ser.utils import set_seed
 
 
 def inverse_frequency_weights(labels: np.ndarray, num_classes: int) -> torch.Tensor:
-    '''Sınıf ağırlıkları: n / (K * n_k) — eğitimdeki sınıf sayısıyla ters orantılı.
-
-    Örnek: bir sınıfın az kaydı varsa ağırlığı büyük olur; böylece loss,
-    çoğunluk sınıfını ezberleyip azınlığı görmezden gelmeyi cezalandırır.
-    '''
+    # Sınıf ağırlıkları: n / (K * n_k) — eğitimdeki sınıf sayısıyla ters orantılı.
+    #
+    # Örnek: bir sınıfın az kaydı varsa ağırlığı büyük olur; böylece loss, çoğunluk sınıfını ezberleyip azınlığı görmezden gelmeyi cezalandırır.
 
     labels = np.asarray(labels, dtype=np.int64)
     counts = np.bincount(labels, minlength=num_classes)
@@ -54,8 +47,7 @@ def make_loader(
     device: torch.device,
     num_workers: int = 0,
     drop_last: bool = False,
-) -> DataLoader:
-    '''Tekrarlanabilir (tohumlu) bir DataLoader kurar.'''
+) -> DataLoader:  # Tekrarlanabilir (tohumlu) bir DataLoader kurar.
 
     # Karıştırma sırası bu üretece bağlı; sabit tohum = aynı sıra = aynı sonuç.
     generator = torch.Generator()
@@ -77,8 +69,7 @@ def evaluate_loader(
     loader: DataLoader,
     criterion: nn.Module,
     device: torch.device,
-) -> tuple[float, dict[str, Any], np.ndarray]:
-    '''Modeli gradyansız değerlendirir: (ortalama loss, metrikler, olasılıklar).'''
+) -> tuple[float, dict[str, Any], np.ndarray]:  # Modeli gradyansız değerlendirir: (ortalama loss, metrikler, olasılıklar).
 
     model.eval()   # BatchNorm/Dropout'u değerlendirme kipine al
     total_loss = 0.0
@@ -113,8 +104,7 @@ def evaluate_loader(
 
 
 @dataclass
-class TrainingOutcome:
-    '''Bir eğitim koşusunun tüm sonucu: model + geçmiş + en iyi epoch bilgileri.'''
+class TrainingOutcome:  # Bir eğitim koşusunun tüm sonucu: model + geçmiş + en iyi epoch bilgileri.
 
     model: nn.Module
     history: list[dict[str, Any]]           # epoch başına metrikler (öğrenme eğrisi)
@@ -144,17 +134,11 @@ def train_with_early_stopping(
     label_smoothing: float = 0.0,
     mixup_alpha: float = 0.0,
 ) -> TrainingOutcome:
-    '''Bir adayı eğitir ve geçerleme macro-F1'i en iyi olan epoch'u geri yükler.
-
-    Early stopping mantığı: her epoch sonunda geçerleme macro-F1 ölçülür;
-    `patience` epoch boyunca anlamlı iyileşme (min_delta'dan büyük) olmazsa
-    eğitim durur. Böylece model, geçerlemede bozulmaya başladığı (aşırı
-    öğrenme) noktadan sonrasını "unutur".
-
-    ``train_transform`` (ör. SpecAugment maskeleme) SADECE eğitim
-    yığınlarına uygulanır; geçerleme dokunulmadan kalır ki model seçimi
-    yansız (tarafsız) olsun.
-    '''
+    # Bir adayı eğitir ve geçerleme macro-F1'i en iyi olan epoch'u geri yükler.
+    #
+    # Early stopping mantığı: her epoch sonunda geçerleme macro-F1 ölçülür; `patience` epoch boyunca anlamlı iyileşme (min_delta'dan büyük) olmazsa eğitim durur. Böylece model, geçerlemede bozulmaya başladığı (aşırı öğrenme) noktadan sonrasını "unutur".
+    #
+    # ``train_transform`` (ör. SpecAugment maskeleme) SADECE eğitim yığınlarına uygulanır; geçerleme dokunulmadan kalır ki model seçimi yansız (tarafsız) olsun.
 
     optim.validate()
     if max_epochs <= 0:
@@ -325,8 +309,7 @@ def evaluate_arrays(
     device: torch.device,
     batch_size: int = 256,
     num_workers: int = 0,
-) -> tuple[float, dict[str, Any], np.ndarray]:
-    '''Sabit bir modeli karıştırmadan ve gradyansız değerlendirir (test için).'''
+) -> tuple[float, dict[str, Any], np.ndarray]:  # Sabit bir modeli karıştırmadan ve gradyansız değerlendirir (test için).
 
     loader = make_loader(
         features,

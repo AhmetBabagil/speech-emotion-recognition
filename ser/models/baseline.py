@@ -1,34 +1,23 @@
-"""Klasik taban modeli: MFCC özet istatistikleri -> StandardScaler -> sınıflandırıcı.
-
-Proje önerisinin şart koştuğu derin-olmayan referans noktası budur. Amaç: derin
-modellerin katkısını ölçebilmek için önce "eski usul" güçlü bir çizgi çekmek.
-Üç sınıflandırıcı seçeneği vardır:
-  * "svm"      : RBF çekirdekli SVM (havuzlanmış MFCC öznitelikleri için güçlü
-                 ve yerleşik bir varsayılan)
-  * "logreg"   : multinomial lojistik regresyon (hızlı, doğrusal — özellikle
-                 çok kez eğitim gerektiren analizlerde tercih edilir)
-  * "rf"       : rastgele orman (ağaç tabanlı, doğrusal olmayan alternatif)
-
-Sınıf dengesizliği (özellikle MELD'de) her seçenekte ``class_weight="balanced"``
-ile ele alınır: nadir sınıfın örnekleri kayıpta daha ağır sayılır.
-
-Neden Pipeline? Ölçekleyici ile sınıflandırıcıyı tek nesnede birleştirmek,
-"scaler'ı yalnızca train ile fit et, test'e yalnızca transform uygula" kuralını
-otomatikleştirir — test istatistiklerinin modele sızması (leakage) yapısal
-olarak imkânsız hâle gelir.
-"""
+# Klasik taban modeli: MFCC özet istatistikleri -> StandardScaler -> sınıflandırıcı.
+#
+# Proje önerisinin şart koştuğu derin-olmayan referans noktası budur. Amaç: derin modellerin katkısını ölçebilmek için önce "eski usul" güçlü bir çizgi çekmek. Üç sınıflandırıcı seçeneği vardır:
+# * "svm"      : RBF çekirdekli SVM (havuzlanmış MFCC öznitelikleri için güçlü
+# ve yerleşik bir varsayılan)
+# * "logreg"   : multinomial lojistik regresyon (hızlı, doğrusal — özellikle
+# çok kez eğitim gerektiren analizlerde tercih edilir)
+# * "rf"       : rastgele orman (ağaç tabanlı, doğrusal olmayan alternatif)
+#
+# Sınıf dengesizliği (özellikle MELD'de) her seçenekte ``class_weight="balanced"`` ile ele alınır: nadir sınıfın örnekleri kayıpta daha ağır sayılır.
+#
+# Neden Pipeline? Ölçekleyici ile sınıflandırıcıyı tek nesnede birleştirmek, "scaler'ı yalnızca train ile fit et, test'e yalnızca transform uygula" kuralını otomatikleştirir — test istatistiklerinin modele sızması (leakage) yapısal olarak imkânsız hâle gelir.
 
 from __future__ import annotations
 
 
 def build_baseline(kind: str = "svm"):
-    """Fit edilmemiş bir sklearn Pipeline'ı (scaler + sınıflandırıcı) döndürür.
-
-    "Fit edilmemiş" olması bilinçli: çağıran taraf hangi veriyle eğiteceğine
-    kendisi karar verir (tam veri, etiket kesiri, pseudo-label'lı küme...).
-    sklearn importları fonksiyon içindedir ki modül, sklearn kurulu olmayan
-    ortamlarda da import edilebilsin.
-    """
+    # Fit edilmemiş bir sklearn Pipeline'ı (scaler + sınıflandırıcı) döndürür.
+    #
+    # "Fit edilmemiş" olması bilinçli: çağıran taraf hangi veriyle eğiteceğine kendisi karar verir (tam veri, etiket kesiri, pseudo-label'lı küme...). sklearn importları fonksiyon içindedir ki modül, sklearn kurulu olmayan ortamlarda da import edilebilsin.
     from sklearn.pipeline import Pipeline
     from sklearn.preprocessing import StandardScaler
 

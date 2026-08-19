@@ -1,17 +1,9 @@
-'''Tek corpus için uçtan uca final deney hattı.
-
-Akış (her yöntem için ayrı ayrı):
-1. Manifest'i oku, konuşmacı-bağımsız eğitim/geçerleme/test bölmesi yap.
-2. Adayların özniteliklerini çıkar (önbellekten geliyorsa saniyeler sürer).
-3. ARAMA: her adayı eğit, geçerleme macro-F1'ine göre sırala.
-4. İYİLEŞTİRME TURU: kazananın çevresindeki yerel adayları da dene.
-5. Nihai kazananı TEST kümesinde BİR KEZ değerlendir.
-6. Tüm artefaktları (arama logu, kazanan ayarlar, öğrenme eğrisi, metrikler,
-   karışıklık matrisi, model ağırlıkları) çıktı klasörüne yaz.
-
-Dürüstlük ilkesi: test kümesine yalnızca seçilmiş nihai model dokunur;
-hiperparametre kararlarının hiçbiri test sonucuna bakılarak verilmez.
-'''
+# Tek corpus için uçtan uca final deney hattı.
+#
+# Akış (her yöntem için ayrı ayrı): 1. Manifest'i oku, konuşmacı-bağımsız eğitim/geçerleme/test bölmesi yap. 2. Adayların özniteliklerini çıkar (önbellekten geliyorsa saniyeler sürer). 3. ARAMA: her adayı eğit, geçerleme macro-F1'ine göre sırala. 4. İYİLEŞTİRME TURU: kazananın çevresindeki yerel adayları da dene. 5. Nihai kazananı TEST kümesinde BİR KEZ değerlendir. 6. Tüm artefaktları (arama logu, kazanan ayarlar, öğrenme eğrisi, metrikler,
+# karışıklık matrisi, model ağırlıkları) çıktı klasörüne yaz.
+#
+# Dürüstlük ilkesi: test kümesine yalnızca seçilmiş nihai model dokunur; hiperparametre kararlarının hiçbiri test sonucuna bakılarak verilmez.
 
 from __future__ import annotations
 
@@ -55,11 +47,9 @@ log = get_logger(__name__)
 
 @dataclass(frozen=True)
 class SplitSettings:
-    '''ser.config'in veri bölümünün, prepare_splits'e yetecek kadarı.
-
-    split="speaker": bölme aktör kimliğine göre yapılır — bir konuşmacının
-    tüm kayıtları tek katmanda kalır (konuşmacı-bağımsız protokol).
-    '''
+    # ser.config'in veri bölümünün, prepare_splits'e yetecek kadarı.
+    #
+    # split="speaker": bölme aktör kimliğine göre yapılır — bir konuşmacının tüm kayıtları tek katmanda kalır (konuşmacı-bağımsız protokol).
 
     train_corpora: tuple[str, ...]
     eval_corpora: tuple[str, ...]
@@ -69,11 +59,9 @@ class SplitSettings:
 
 
 def _limit_stratified(df: pd.DataFrame, limit: int, seed: int) -> pd.DataFrame:
-    '''SADECE TANI amaçlı: katmanı, sınıf oranlarını koruyarak küçültür.
-
-    Duman testlerinde (quick mod) tüm hattı dakikalar içinde uçtan uca
-    denemek için kullanılır; gerçek deneylerde devrede değildir.
-    '''
+    # SADECE TANI amaçlı: katmanı, sınıf oranlarını koruyarak küçültür.
+    #
+    # Duman testlerinde (quick mod) tüm hattı dakikalar içinde uçtan uca denemek için kullanılır; gerçek deneylerde devrede değildir.
 
     if limit >= len(df):
         return df
@@ -96,11 +84,9 @@ def _feature_folds(
     workers: int,
     cache: dict,
 ) -> dict[str, tuple[np.ndarray, np.ndarray]]:
-    '''Verilen katmanların öznitelik tensörlerini üretir (veya yeniden kullanır).
-
-    ``cache`` sözlüğü koşu-içi bellektir: aynı öznitelik ayarını kullanan
-    birden çok aday, katman tensörlerini yalnızca bir kez hesaplatır.
-    '''
+    # Verilen katmanların öznitelik tensörlerini üretir (veya yeniden kullanır).
+    #
+    # ``cache`` sözlüğü koşu-içi bellektir: aynı öznitelik ayarını kullanan birden çok aday, katman tensörlerini yalnızca bir kez hesaplatır.
 
     result = {}
     for name, records in folds.items():
@@ -120,8 +106,7 @@ def _feature_folds(
 
 
 def _candidate_row(feature_cfg, model_cfg, outcome: TrainingOutcome, seconds: float,
-                   stage: str, n_params: int) -> dict[str, Any]:
-    '''Bir adayın tüm sonuçlarını arama loguna yazılacak tek satıra çevirir.'''
+                   stage: str, n_params: int) -> dict[str, Any]:  # Bir adayın tüm sonuçlarını arama loguna yazılacak tek satıra çevirir.
 
     row = {
         'stage': stage,                                              # 'search' / 'refine'
@@ -143,11 +128,9 @@ def _candidate_row(feature_cfg, model_cfg, outcome: TrainingOutcome, seconds: fl
 
 
 def _plot_history(history: list[dict[str, Any]], out_path: Path, title: str) -> None:
-    '''Kazanan adayın öğrenme eğrilerini (loss + macro-F1) PNG olarak kaydeder.
-
-    Bu grafik, erken durdurmanın çalıştığının görsel kanıtıdır: eğitim
-    kaybı düşmeye devam ederken geçerleme kaybının dönmesi = aşırı öğrenme.
-    '''
+    # Kazanan adayın öğrenme eğrilerini (loss + macro-F1) PNG olarak kaydeder.
+    #
+    # Bu grafik, erken durdurmanın çalıştığının görsel kanıtıdır: eğitim kaybı düşmeye devam ederken geçerleme kaybının dönmesi = aşırı öğrenme.
 
     import matplotlib
     matplotlib.use('Agg')   # ekran gerektirmeyen arka uç (sunucu/terminal uyumlu)
@@ -187,8 +170,7 @@ def run_method(
     amp: bool,
     refine: bool,
     seed: int,
-) -> dict[str, Any]:
-    '''Tek bir yöntemi arar, iyileştirir ve test eder; özet sözlüğü döndürür.'''
+) -> dict[str, Any]:  # Tek bir yöntemi arar, iyileştirir ve test eder; özet sözlüğü döndürür.
 
     # Yönteme göre aday listesi, öznitelik fonksiyonu ve normalizasyon ekseni seç.
     if method == 'cnn':
@@ -204,8 +186,7 @@ def run_method(
     else:
         raise ValueError(f'Bilinmeyen yöntem {method!r}.')
 
-    def build_model(feature_cfg, model_cfg):
-        '''Adayın ayarlarından taze (rastgele başlatılmış) bir model kurar.'''
+    def build_model(feature_cfg, model_cfg):  # Adayın ayarlarından taze (rastgele başlatılmış) bir model kurar.
 
         if method == 'cnn':
             return MelCNN(NUM_CLASSES, model_cfg)
@@ -216,8 +197,7 @@ def run_method(
     rows: list[dict[str, Any]] = []          # arama logunun satırları
     best: dict[str, Any] | None = None       # şu ana kadarki geçerleme kazananı
 
-    def run_stage(stage: str, stage_candidates) -> None:
-        '''Bir aday listesini eğitir; geçerleme kazananını `best`te günceller.'''
+    def run_stage(stage: str, stage_candidates) -> None:  # Bir aday listesini eğitir; geçerleme kazananını `best`te günceller.
 
         nonlocal best
         for index, (feature_cfg, model_cfg) in enumerate(stage_candidates, start=1):
@@ -385,8 +365,7 @@ def run_all(
     limit_per_split: int | None = None,
     prior_results_path: str | Path | None = None,
     seed: int = 42,
-) -> dict[str, dict[str, Any]]:
-    '''Tüm deneyi koşturur: bölme -> her yöntem -> karşılaştırma tablosu.'''
+) -> dict[str, dict[str, Any]]:  # Tüm deneyi koşturur: bölme -> her yöntem -> karşılaştırma tablosu.
 
     # 1) Manifest + konuşmacı-bağımsız bölme (deterministik: seed=42).
     manifest = pd.read_csv(manifest_path)
@@ -440,8 +419,7 @@ def run_all(
 def _comparison_table(
     results: dict[str, dict[str, Any]],
     prior_results_path: str | Path | None,
-) -> pd.DataFrame:
-    '''Yöntem karşılaştırma CSV'sini kurar; istenirse eski sonuçları da ekler.'''
+) -> pd.DataFrame:  # Yöntem karşılaştırma CSV'sini kurar; istenirse eski sonuçları da ekler.
 
     rows = []
     names = {'cnn': 'Yöntem 1: Mel + CNN', 'rnn': 'Yöntem 2: Aralık + LSTM/GRU'}

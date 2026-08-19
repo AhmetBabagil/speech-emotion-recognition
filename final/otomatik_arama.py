@@ -1,21 +1,18 @@
-'''Otomatik rastgele hiperparametre araması — MAKSİMUM GÜÇ sürümü.
-
-Rastgele arama, ızgaradan daha verimlidir (Bergstra & Bengio, 2012): her
-denemede uzayın yeni bir noktası yoklanır. Bu sürüm donanımı sonuna kadar
-kullanır:
-
-1. ÖN-ÇIKARMA: denenecek tüm aralık düzenlerinin öznitelikleri baştan, çok
-   iş parçacığıyla çıkarılır (bir kez; sonrası önbellek). Böylece deneme
-   döngüsü sırasında GPU asla CPU'yu beklemez.
-2. PARALEL DENEME: --paralel N ile aynı anda N model birden eğitilir.
-   Modeller küçük olduğu için RTX 5080 üç-dört eğitimi rahat taşır.
-3. Her sonuç ANINDA arama_defteri.csv'ye yazılır (çökse bile kayıp olmaz).
-
-Test disiplini: bu betik TEST'E DOKUNMAZ — hakem yalnızca geçerleme kümesi.
-
-Örnek (tam güç):
-    python final/otomatik_arama.py --denemeler 100 --paralel 3 --feature-workers 24
-'''
+# Otomatik rastgele hiperparametre araması — MAKSİMUM GÜÇ sürümü.
+#
+# Rastgele arama, ızgaradan daha verimlidir (Bergstra & Bengio, 2012): her denemede uzayın yeni bir noktası yoklanır. Bu sürüm donanımı sonuna kadar kullanır:
+#
+# 1. ÖN-ÇIKARMA: denenecek tüm aralık düzenlerinin öznitelikleri baştan, çok
+# iş parçacığıyla çıkarılır (bir kez; sonrası önbellek). Böylece deneme
+# döngüsü sırasında GPU asla CPU'yu beklemez.
+# 2. PARALEL DENEME: --paralel N ile aynı anda N model birden eğitilir.
+# Modeller küçük olduğu için RTX 5080 üç-dört eğitimi rahat taşır.
+# 3. Her sonuç ANINDA arama_defteri.csv'ye yazılır (çökse bile kayıp olmaz).
+#
+# Test disiplini: bu betik TEST'E DOKUNMAZ — hakem yalnızca geçerleme kümesi.
+#
+# Örnek (tam güç):
+# python final/otomatik_arama.py --denemeler 100 --paralel 3 --feature-workers 24
 
 from __future__ import annotations
 
@@ -46,8 +43,7 @@ _FEATURE_CACHE: dict = {}
 _MAX_EPOCHS = 60
 
 
-def rastgele_aday(rng: random.Random):
-    '''Uzaydan tek bir rastgele (aralık düzeni, model ayarı) ikilisi çeker.'''
+def rastgele_aday(rng: random.Random):  # Uzaydan tek bir rastgele (aralık düzeni, model ayarı) ikilisi çeker.
 
     from final.features import IntervalConfig
     from final.models import OptimSettings, RNNConfig
@@ -74,8 +70,7 @@ def rastgele_aday(rng: random.Random):
     return feature_cfg, model_cfg
 
 
-def _isci_kur(manifest_path: str, seed: int, cache_root: str, max_epochs: int) -> None:
-    '''Her paralel işçi süreç başlarken BİR KEZ çalışır: bölmeyi kurar.'''
+def _isci_kur(manifest_path: str, seed: int, cache_root: str, max_epochs: int) -> None:  # Her paralel işçi süreç başlarken BİR KEZ çalışır: bölmeyi kurar.
 
     global _FOLDS, _CACHE_ROOT, _MAX_EPOCHS
     import pandas as pd
@@ -90,8 +85,7 @@ def _isci_kur(manifest_path: str, seed: int, cache_root: str, max_epochs: int) -
     _MAX_EPOCHS = max_epochs
 
 
-def _deneme_kos(girdi):
-    '''Tek bir adayı eğitir; sonuç satırını döndürür (işçi süreçte koşar).'''
+def _deneme_kos(girdi):  # Tek bir adayı eğitir; sonuç satırını döndürür (işçi süreçte koşar).
 
     k, feature_cfg, model_cfg = girdi
     import torch

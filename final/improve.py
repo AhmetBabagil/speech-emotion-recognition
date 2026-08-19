@@ -1,21 +1,17 @@
-'''Geliştirme aşaması: kazananların artırma / dikkat varyantlarını dener.
-
-Yönergenin 5. bölümü "hiperparametre optimizasyonundan SONRA performans
-iyileştirmek için geliştirmeler yapın" der. Bu betik tam olarak onu yapar:
-
-1. run_experiment.py'nin ürettiği kazananları (winner.json) okur.
-2. Literatürün önerdiği geliştirmelerle yeniden eğitir:
-   - CNN  : SpecAugment maskeleme (2 şiddet)
-   - RNN  : dikkat havuzlama, öznitelik gürültüsü, ikisi birden
-3. Varyantları GEÇERLEME kümesinde tabanla karşılaştırır.
-4. Yalnızca geçerlemede kazananı geçen varyant test kümesinde değerlendirilir;
-   hiçbiri geçemezse test'e dokunulmaz (dürüst protokol) ve bu olumsuz sonuç
-   da rapora yazılır.
-
-Örnekler:
-    python final/improve.py
-    python final/improve.py --methods rnn --out-root final/outputs
-'''
+# Geliştirme aşaması: kazananların artırma / dikkat varyantlarını dener.
+#
+# Yönergenin 5. bölümü "hiperparametre optimizasyonundan SONRA performans iyileştirmek için geliştirmeler yapın" der. Bu betik tam olarak onu yapar:
+#
+# 1. run_experiment.py'nin ürettiği kazananları (winner.json) okur. 2. Literatürün önerdiği geliştirmelerle yeniden eğitir:
+# - CNN  : SpecAugment maskeleme (2 şiddet)
+# - RNN  : dikkat havuzlama, öznitelik gürültüsü, ikisi birden
+# 3. Varyantları GEÇERLEME kümesinde tabanla karşılaştırır. 4. Yalnızca geçerlemede kazananı geçen varyant test kümesinde değerlendirilir;
+# hiçbiri geçemezse test'e dokunulmaz (dürüst protokol) ve bu olumsuz sonuç
+# da rapora yazılır.
+#
+# Örnekler:
+# python final/improve.py
+# python final/improve.py --methods rnn --out-root final/outputs
 
 from __future__ import annotations
 
@@ -61,8 +57,7 @@ from ser.utils import ensure_dir, get_logger  # noqa: E402
 log = get_logger(__name__)
 
 
-def _model_config_from_dict(method: str, values: dict[str, Any]):
-    '''winner.json'daki sözlükten config nesnesini geri kurar.'''
+def _model_config_from_dict(method: str, values: dict[str, Any]):  # winner.json'daki sözlükten config nesnesini geri kurar.
 
     values = dict(values)
     optim = OptimSettings(**values.pop('optim'))
@@ -81,8 +76,7 @@ def _model_config_from_dict(method: str, values: dict[str, Any]):
 
 
 def _variants(method: str, model_cfg) -> list[dict[str, Any]]:
-    '''Denenecek geliştirme varyantları; transform=None demek "yalnız model
-    değişikliği, veri artırma yok" demektir.'''
+    # Denenecek geliştirme varyantları; transform=None demek "yalnız model değişikliği, veri artırma yok" demektir.
 
     if method == 'cnn':
         return [
@@ -118,8 +112,7 @@ def improve_method(
     loader_workers: int,
     amp: bool,
     seed: int,
-) -> dict[str, Any]:
-    '''Tek yöntemin geliştirme aşamasını koşturur ve özetini döndürür.'''
+) -> dict[str, Any]:  # Tek yöntemin geliştirme aşamasını koşturur ve özetini döndürür.
 
     # 1) Kazananı diskteki winner.json'dan oku.
     winner_path = method_dir / 'winner.json'

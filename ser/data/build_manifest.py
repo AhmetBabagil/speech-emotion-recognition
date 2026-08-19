@@ -1,24 +1,19 @@
-"""CREMA-D ve MELD'den birleşik manifest CSV'sini üretir.
-
-"Manifest" nedir ve neden var? Projede tüm eğitim/değerlendirme kodu, ham veri
-klasörlerini doğrudan taramak yerine TEK bir CSV'den beslenir. İki korpusun
-dosya düzeni ve etiketleme biçimi tamamen farklıdır (CREMA-D etiketi dosya
-adında taşır, MELD ayrı CSV'lerde tutar); bu farklılık burada, bir kez
-çözülür ve geri kalan kod tek tip satırlarla çalışır.
-
-Çıktı sütunları (kullanılabilir her kayıt için bir satır):
-    path        WAV dosyasının (mutlak/göreli) yolu
-    corpus      'cremad' | 'meld'
-    speaker     CREMA-D oyuncu id'si / MELD konuşmacı adı
-                (konuşmacı-bağımsız bölmeler bu sütuna dayanır)
-    split       CREMA-D için '' (resmî fold'u yok), MELD için 'train'/'dev'/'test'
-                (resmî fold bilgisi; meld_official bölmesi bunu kullanır)
-    orig_label  veri kümesinin kendi etiketi (kod ya da dizge) — izlenebilirlik için
-    emotion     kanonik etiket (angry/disgust/fear/happy/neutral/sad)
-    label_idx   kanonik sınıf indeksi 0..5
-
-Yalnızca ortak altı duygu tutulur; MELD'in 'surprise' satırları atılır.
-"""
+# CREMA-D ve MELD'den birleşik manifest CSV'sini üretir.
+#
+# "Manifest" nedir ve neden var? Projede tüm eğitim/değerlendirme kodu, ham veri klasörlerini doğrudan taramak yerine TEK bir CSV'den beslenir. İki korpusun dosya düzeni ve etiketleme biçimi tamamen farklıdır (CREMA-D etiketi dosya adında taşır, MELD ayrı CSV'lerde tutar); bu farklılık burada, bir kez çözülür ve geri kalan kod tek tip satırlarla çalışır.
+#
+# Çıktı sütunları (kullanılabilir her kayıt için bir satır):
+# path        WAV dosyasının (mutlak/göreli) yolu
+# corpus      'cremad' | 'meld'
+# speaker     CREMA-D oyuncu id'si / MELD konuşmacı adı
+# (konuşmacı-bağımsız bölmeler bu sütuna dayanır)
+# split       CREMA-D için '' (resmî fold'u yok), MELD için 'train'/'dev'/'test'
+# (resmî fold bilgisi; meld_official bölmesi bunu kullanır)
+# orig_label  veri kümesinin kendi etiketi (kod ya da dizge) — izlenebilirlik için
+# emotion     kanonik etiket (angry/disgust/fear/happy/neutral/sad)
+# label_idx   kanonik sınıf indeksi 0..5
+#
+# Yalnızca ortak altı duygu tutulur; MELD'in 'surprise' satırları atılır.
 
 from __future__ import annotations
 
@@ -42,14 +37,9 @@ SPLIT_CSV = {"train": "train_sent_emo.csv", "dev": "dev_sent_emo.csv", "test": "
 
 
 def cremad_rows(audiowav_dir: str | Path) -> list[dict]:
-    """CREMA-D WAV klasörünü tarayıp manifest satırlarını üretir.
-
-    CREMA-D'de bütün bilgi dosya adındadır:
-    ``<ActorID>_<Sentence>_<Emotion>_<Level>.wav`` (örn. 1001_DFA_ANG_XX.wav).
-    Ayrı bir etiket dosyası yoktur; adı parçalayarak hem konuşmacıyı hem duyguyu
-    çıkarırız. sorted(): dosya sistemi sırasına bağımlı kalmamak için — aynı
-    klasörden her platformda aynı sırayla aynı manifest üretilsin.
-    """
+    # CREMA-D WAV klasörünü tarayıp manifest satırlarını üretir.
+    #
+    # CREMA-D'de bütün bilgi dosya adındadır: ``<ActorID>_<Sentence>_<Emotion>_<Level>.wav`` (örn. 1001_DFA_ANG_XX.wav). Ayrı bir etiket dosyası yoktur; adı parçalayarak hem konuşmacıyı hem duyguyu çıkarırız. sorted(): dosya sistemi sırasına bağımlı kalmamak için — aynı klasörden her platformda aynı sırayla aynı manifest üretilsin.
     audiowav_dir = Path(audiowav_dir)
     rows = []
     for wav in sorted(audiowav_dir.glob("*.wav")):
@@ -75,13 +65,9 @@ def cremad_rows(audiowav_dir: str | Path) -> list[dict]:
 
 
 def meld_rows(csv_dir: str | Path, audio_root: str | Path) -> list[dict]:
-    """MELD'in üç fold CSV'sini okuyup manifest satırlarını üretir.
-
-    MELD'de etiketler CSV'de, sesler ise (bizim ffmpeg adımımızın ürettiği)
-    ``audio/<split>/diaX_uttY.wav`` dosyalarındadır. CSV satırı ile ses dosyası
-    burada eşleştirilir; sesi diskte OLMAYAN satırlar sessizce atlanır — böylece
-    manifest her zaman gerçekten açılabilir dosyaları listeler.
-    """
+    # MELD'in üç fold CSV'sini okuyup manifest satırlarını üretir.
+    #
+    # MELD'de etiketler CSV'de, sesler ise (bizim ffmpeg adımımızın ürettiği) ``audio/<split>/diaX_uttY.wav`` dosyalarındadır. CSV satırı ile ses dosyası burada eşleştirilir; sesi diskte OLMAYAN satırlar sessizce atlanır — böylece manifest her zaman gerçekten açılabilir dosyaları listeler.
     csv_dir = Path(csv_dir)
     audio_root = Path(audio_root)
     rows = []
@@ -125,12 +111,9 @@ def build_manifest(
     meld_audio_root: str | Path | None = "data/raw/meld/audio",
     out_path: str | Path = "data/processed/manifest.csv",
 ) -> pd.DataFrame:
-    """İki korpusun satırlarını toplayıp tek CSV'ye yazar; DataFrame'i döndürür.
-
-    Esnek davranır: korpuslardan biri diskte yoksa uyarı verip diğeriyle devam
-    eder (örneğin yalnızca CREMA-D indirilmişse CREMA-D-only deneyler yine
-    çalışabilsin). İkisi de yoksa anlamlı bir hata fırlatılır.
-    """
+    # İki korpusun satırlarını toplayıp tek CSV'ye yazar; DataFrame'i döndürür.
+    #
+    # Esnek davranır: korpuslardan biri diskte yoksa uyarı verip diğeriyle devam eder (örneğin yalnızca CREMA-D indirilmişse CREMA-D-only deneyler yine çalışabilsin). İkisi de yoksa anlamlı bir hata fırlatılır.
     rows: list[dict] = []
 
     if cremad_dir and Path(cremad_dir).is_dir():

@@ -1,9 +1,6 @@
-'''En yalın aday: SADECE spektral kontrast (pitch+jitter olmadan) = 51 boyut.
-
-Bırak-birini ablasyonu pitch ve jitter'ın kontrastla birlikteyken fazlalık
-olduğunu gösterdi. Bu betik "taban + yalnız kontrast" setini 5 koşu eğitip,
-bu en yalın kombinasyonun en iyisi olup olmadığını test eder.
-'''
+# En yalın aday: SADECE spektral kontrast (pitch+jitter olmadan) = 51 boyut.
+#
+# Bırak-birini ablasyonu pitch ve jitter'ın kontrastla birlikteyken fazlalık olduğunu gösterdi. Bu betik "taban + yalnız kontrast" setini 5 koşu eğitip, bu en yalın kombinasyonun en iyisi olup olmadığını test eder.
 
 from __future__ import annotations
 

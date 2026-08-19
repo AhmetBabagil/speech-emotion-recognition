@@ -1,20 +1,18 @@
-"""Train/val/test bölme stratejileri.
-
-Config'teki eğitim/değerlendirme korpuslarına bakılarak iki rejimden biri
-otomatik seçilir:
-
-* KORPUS-İÇİ (within-corpus, train_corpora == eval_corpora): seçilen korpus
-  3 parçaya bölünür. ``split="speaker"`` ile bölme konuşmacı-bağımsızdır
-  (hiçbir konuşmacı birden fazla foldda yer almaz) — SER için DOĞRU protokol
-  budur, çünkü aynı konuşmacı hem train hem test'te olursa model duyguyu değil
-  o kişinin ses rengini ezberleyerek şişirilmiş skor alır. ``split="meld_official"``
-  ile MELD'in kendi train/dev/test foldları kullanılır.
-
-* KORPUSLAR-ARASI (cross-corpus, train_corpora != eval_corpora): eğitim korpusu
-  konuşmacı-bağımsız şekilde train/val'e bölünür ve değerlendirme korpusunun
-  TAMAMI test kümesi olur. Bu, farklı kayıt koşulları/konuşmacılar arasında
-  genellemeyi ölçer — test korpusundan tek bir örnek bile eğitime sızmaz.
-"""
+# Train/val/test bölme stratejileri.
+#
+# Config'teki eğitim/değerlendirme korpuslarına bakılarak iki rejimden biri otomatik seçilir:
+#
+# * KORPUS-İÇİ (within-corpus, train_corpora == eval_corpora): seçilen korpus
+# 3 parçaya bölünür. ``split="speaker"`` ile bölme konuşmacı-bağımsızdır
+# (hiçbir konuşmacı birden fazla foldda yer almaz) — SER için DOĞRU protokol
+# budur, çünkü aynı konuşmacı hem train hem test'te olursa model duyguyu değil
+# o kişinin ses rengini ezberleyerek şişirilmiş skor alır. ``split="meld_official"``
+# ile MELD'in kendi train/dev/test foldları kullanılır.
+#
+# * KORPUSLAR-ARASI (cross-corpus, train_corpora != eval_corpora): eğitim korpusu
+# konuşmacı-bağımsız şekilde train/val'e bölünür ve değerlendirme korpusunun
+# TAMAMI test kümesi olur. Bu, farklı kayıt koşulları/konuşmacılar arasında
+# genellemeyi ölçer — test korpusundan tek bir örnek bile eğitime sızmaz.
 
 from __future__ import annotations
 
@@ -28,25 +26,18 @@ log = get_logger(__name__)
 
 
 def _valid_rows(df: pd.DataFrame) -> pd.DataFrame:
-    """Ortak altı sınıf dışındaki satırları atar ve speaker sütununu dizgeye çevirir.
-
-    ``label_idx`` 0..5 aralığı dışında olan (eşlenememiş) satırlar elenir.
-    ``speaker`` tip standardizasyonu önemlidir: CREMA-D oyuncu id'leri CSV'den
-    sayı olarak okunabilir; küme karşılaştırmalarında "1001" ile 1001 farklı
-    şeyler olurdu — hepsini string'e çevirmek bu tuzağı kapatır.
-    """
+    # Ortak altı sınıf dışındaki satırları atar ve speaker sütununu dizgeye çevirir.
+    #
+    # ``label_idx`` 0..5 aralığı dışında olan (eşlenememiş) satırlar elenir. ``speaker`` tip standardizasyonu önemlidir: CREMA-D oyuncu id'leri CSV'den sayı olarak okunabilir; küme karşılaştırmalarında "1001" ile 1001 farklı şeyler olurdu — hepsini string'e çevirmek bu tuzağı kapatır.
     df = df[df["label_idx"].between(0, NUM_CLASSES - 1)].copy()
     df["speaker"] = df["speaker"].astype(str)
     return df
 
 
 def _check_nonempty(train_df, val_df, test_df):
-    """Herhangi bir fold boş kaldıysa net bir mesajla hemen hata fırlatır.
-
-    "Fail fast" ilkesi: boş fold, eğitimin çok sonrasında anlaşılması zor
-    hatalara (örn. boş dizide metrik hesabı) yol açar; sorunu kaynağında,
-    açıklayıcı bir mesajla yakalamak saatlerce hata ayıklamadan kurtarır.
-    """
+    # Herhangi bir fold boş kaldıysa net bir mesajla hemen hata fırlatır.
+    #
+    # "Fail fast" ilkesi: boş fold, eğitimin çok sonrasında anlaşılması zor hatalara (örn. boş dizide metrik hesabı) yol açar; sorunu kaynağında, açıklayıcı bir mesajla yakalamak saatlerce hata ayıklamadan kurtarır.
     for name, part in (("train", train_df), ("val", val_df), ("test", test_df)):
         if len(part) == 0:
             raise ValueError(
@@ -59,17 +50,11 @@ def _check_nonempty(train_df, val_df, test_df):
 
 
 def _speaker_partition(df: pd.DataFrame, fractions: list[float], seed: int) -> list[pd.DataFrame]:
-    """``df``'yi KONUŞMACI bütünlüğünü koruyarak len(fractions) folda böler.
-
-    fractions toplamı 1'dir; konuşmacılar deterministik olarak karıştırılır ve
-    oranlara göre dilimlenir.
-
-    Kritik nokta: oranlar kayıt sayısına değil KONUŞMACI sayısına uygulanır ve
-    bir konuşmacının bütün kayıtları aynı folda girer. Böylece train/val/test
-    arasında kimlik (ses) sızıntısı oluşmaz — model test konuşmacısının sesini
-    eğitimde hiç duymamış olur. (Bedeli: konuşmacı başına kayıt sayısı değişken
-    olduğundan fold büyüklükleri hedef oranlardan biraz sapabilir.)
-    """
+    # ``df``'yi KONUŞMACI bütünlüğünü koruyarak len(fractions) folda böler.
+    #
+    # fractions toplamı 1'dir; konuşmacılar deterministik olarak karıştırılır ve oranlara göre dilimlenir.
+    #
+    # Kritik nokta: oranlar kayıt sayısına değil KONUŞMACI sayısına uygulanır ve bir konuşmacının bütün kayıtları aynı folda girer. Böylece train/val/test arasında kimlik (ses) sızıntısı oluşmaz — model test konuşmacısının sesini eğitimde hiç duymamış olur. (Bedeli: konuşmacı başına kayıt sayısı değişken olduğundan fold büyüklükleri hedef oranlardan biraz sapabilir.)
     # Önce sıralamak, aynı seed ile platformdan/pandas sürümünden bağımsız aynı
     # başlangıç sırasını garanti eder; shuffle bu sıralı liste üzerinde yapılır.
     speakers = sorted(df["speaker"].unique())
@@ -96,12 +81,9 @@ def _speaker_partition(df: pd.DataFrame, fractions: list[float], seed: int) -> l
 
 
 def _random_partition(df: pd.DataFrame, fractions: list[float], seed: int) -> list[pd.DataFrame]:
-    """Satırları tamamen rastgele böler.
-
-    Aynı konuşmacı farklı foldlara düşebileceği için ana protokol DEĞİLDİR;
-    yalnızca kıyas/ablasyon amaçlıdır ("konuşmacı sızıntısı skoru ne kadar
-    şişiriyor?" sorusuna cevap vermek için random ile speaker karşılaştırılır).
-    """
+    # Satırları tamamen rastgele böler.
+    #
+    # Aynı konuşmacı farklı foldlara düşebileceği için ana protokol DEĞİLDİR; yalnızca kıyas/ablasyon amaçlıdır ("konuşmacı sızıntısı skoru ne kadar şişiriyor?" sorusuna cevap vermek için random ile speaker karşılaştırılır).
     idx = np.arange(len(df))
     rng = np.random.default_rng(seed)
     rng.shuffle(idx)
@@ -117,18 +99,16 @@ def _random_partition(df: pd.DataFrame, fractions: list[float], seed: int) -> li
 
 
 def prepare_splits(manifest: pd.DataFrame, data_cfg, seed: int = 42):
-    """Config'e göre ``(train_df, val_df, test_df)`` üreten ana bölme fonksiyonu.
-
-    Karar ağacı:
-      1. train ve eval korpusları FARKLI ise -> cross-corpus rejimi:
-         eğitim korpusu konuşmacı-bağımsız train/val'e bölünür, eval korpusunun
-         tamamı test olur.
-      2. Aynı ise -> korpus-içi rejim: config'teki ``split`` stratejisine göre
-         (meld_official / random / speaker) üç fold üretilir.
-
-    Ödev 1 ve Ödev 2, ``split="speaker"`` vererek bu fonksiyonu ortak kullanır;
-    yani tüm deneyler aynı bölme mantığından geçer ve karşılaştırılabilir kalır.
-    """
+    # Config'e göre ``(train_df, val_df, test_df)`` üreten ana bölme fonksiyonu.
+    #
+    # Karar ağacı:
+    # 1. train ve eval korpusları FARKLI ise -> cross-corpus rejimi:
+    # eğitim korpusu konuşmacı-bağımsız train/val'e bölünür, eval korpusunun
+    # tamamı test olur.
+    # 2. Aynı ise -> korpus-içi rejim: config'teki ``split`` stratejisine göre
+    # (meld_official / random / speaker) üç fold üretilir.
+    #
+    # Ödev 1 ve Ödev 2, ``split="speaker"`` vererek bu fonksiyonu ortak kullanır; yani tüm deneyler aynı bölme mantığından geçer ve karşılaştırılabilir kalır.
     df = _valid_rows(manifest)
     # set'e çevirme: ("cremad",) ile ["cremad"] gibi farklı gösterimler eşitlenir
     # ve karşılaştırma sıradan bağımsız olur.

@@ -1,22 +1,12 @@
-"""Transfer öğrenme: önceden eğitilmiş wav2vec2 üzerine sınıflandırma başlığı.
-
-Girdi : [B, num_samples] ham dalga formu (16 kHz; normalizasyonu dataset yapar)
-Çıktı : [B, num_classes] logit'ler
-
-Transfer öğrenmenin fikri: wav2vec2, ETİKETSİZ binlerce saat konuşmayla
-öz-denetimli (self-supervised) olarak eğitilmiştir ve genel amaçlı, zengin ses
-temsilleri öğrenmiştir. Bizim gibi görece küçük SER veri kümeleri, bu hazır
-temsillerin üstüne yalnızca küçük bir sınıflandırma başlığı öğrenerek sıfırdan
-eğitimin ulaşamayacağı sonuçlara ulaşabilir.
-
-Modelin iki parçası vardır: dalga formunu kaba temsile çeviren KONVOLÜSYONEL
-öznitelik kodlayıcı ve bağlamı işleyen TRANSFORMER katmanları. Küçük veri
-kümelerinde kodlayıcıyı DONDURMAK (freeze) önerilir: en genel, en alt seviye
-özellikleri bozmadan yalnızca transformer + başlık ince ayarlanır (fine-tune).
-
-``transformers`` paketi gerekir (``pip install -e .[transfer]``). Bu yol
-hesap yükü nedeniyle GPU'ya yöneliktir.
-"""
+# Transfer öğrenme: önceden eğitilmiş wav2vec2 üzerine sınıflandırma başlığı.
+#
+# Girdi : [B, num_samples] ham dalga formu (16 kHz; normalizasyonu dataset yapar) Çıktı : [B, num_classes] logit'ler
+#
+# Transfer öğrenmenin fikri: wav2vec2, ETİKETSİZ binlerce saat konuşmayla öz-denetimli (self-supervised) olarak eğitilmiştir ve genel amaçlı, zengin ses temsilleri öğrenmiştir. Bizim gibi görece küçük SER veri kümeleri, bu hazır temsillerin üstüne yalnızca küçük bir sınıflandırma başlığı öğrenerek sıfırdan eğitimin ulaşamayacağı sonuçlara ulaşabilir.
+#
+# Modelin iki parçası vardır: dalga formunu kaba temsile çeviren KONVOLÜSYONEL öznitelik kodlayıcı ve bağlamı işleyen TRANSFORMER katmanları. Küçük veri kümelerinde kodlayıcıyı DONDURMAK (freeze) önerilir: en genel, en alt seviye özellikleri bozmadan yalnızca transformer + başlık ince ayarlanır (fine-tune).
+#
+# ``transformers`` paketi gerekir (``pip install -e .[transfer]``). Bu yol hesap yükü nedeniyle GPU'ya yöneliktir.
 
 from __future__ import annotations
 
@@ -24,8 +14,7 @@ import torch
 import torch.nn as nn
 
 
-class Wav2Vec2Classifier(nn.Module):
-    """Önceden eğitilmiş wav2vec2 gövdesi + ortalama havuz + 2 katmanlı MLP başlık."""
+class Wav2Vec2Classifier(nn.Module):  # Önceden eğitilmiş wav2vec2 gövdesi + ortalama havuz + 2 katmanlı MLP başlık.
 
     def __init__(self, num_classes: int, pretrained_name: str = "facebook/wav2vec2-base",
                  freeze_feature_encoder: bool = True, dropout: float = 0.3):

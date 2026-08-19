@@ -1,17 +1,11 @@
-'''Yöntem 1 (CNN) için TOPLULUK (ensemble): 5 SpecAugment-CNN'in softmax
-çıktılarını ortalar.
-
-Neden: tek CNN koşusunun test varyansı ±3,9 puan (çok kararsız). Topluluk,
-bağımsız koşuların hatalarını birbirine sönümleterek hem varyansı düşürür hem
-de tipik olarak tek koşuları geçer. Hazır/önceden eğitilmiş model YOK — beş
-model de sıfırdan, aynı mimari, farklı rastgele tohum.
-
-Dürüstlük: topluluk, test'e BAKMADAN kurulur (eşit ağırlıklı ortalama). Her
-model kendi geçerlemesinde erken durur; test yalnızca en sonda, bir kez ölçülür.
-
-Örnek:
-    python final/cnn_topluluk.py --uye 5
-'''
+# Yöntem 1 (CNN) için TOPLULUK (ensemble): 5 SpecAugment-CNN'in softmax çıktılarını ortalar.
+#
+# Neden: tek CNN koşusunun test varyansı ±3,9 puan (çok kararsız). Topluluk, bağımsız koşuların hatalarını birbirine sönümleterek hem varyansı düşürür hem de tipik olarak tek koşuları geçer. Hazır/önceden eğitilmiş model YOK — beş model de sıfırdan, aynı mimari, farklı rastgele tohum.
+#
+# Dürüstlük: topluluk, test'e BAKMADAN kurulur (eşit ağırlıklı ortalama). Her model kendi geçerlemesinde erken durur; test yalnızca en sonda, bir kez ölçülür.
+#
+# Örnek:
+# python final/cnn_topluluk.py --uye 5
 
 from __future__ import annotations
 

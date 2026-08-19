@@ -1,17 +1,10 @@
-'''İki final yöntemi için öznitelik çıkarma.
-
-Yöntem 1: Her ses kaydı, 2 boyutlu bir log-mel spectrogram "görüntüsüne"
-çevrilir (CNN'in girdisi). Spectrogram, sesin zaman-frekans haritasıdır:
-yatay eksen zaman, dikey eksen frekans, renk/değer o andaki enerji.
-
-Yöntem 2: Ses kaydı, sayısı ve genişliği HİPERPARAMETRE olan eşit aralıklı
-pencerelere bölünür; her aralıktan klasik akustik istatistikler (MFCC,
-enerji, spektral özellikler) çıkarılır. Sonuç [T, D] boyutlu bir öznitelik
-serisidir ve LSTM/GRU'ya girdi olur.
-
-librosa yalnızca sinyal düzeyi öznitelik çıkarımı için kullanılır — ödev
-yönergesi buna açıkça izin verir; hiçbir yerde önceden eğitilmiş model yok.
-'''
+# İki final yöntemi için öznitelik çıkarma.
+#
+# Yöntem 1: Her ses kaydı, 2 boyutlu bir log-mel spectrogram "görüntüsüne" çevrilir (CNN'in girdisi). Spectrogram, sesin zaman-frekans haritasıdır: yatay eksen zaman, dikey eksen frekans, renk/değer o andaki enerji.
+#
+# Yöntem 2: Ses kaydı, sayısı ve genişliği HİPERPARAMETRE olan eşit aralıklı pencerelere bölünür; her aralıktan klasik akustik istatistikler (MFCC, enerji, spektral özellikler) çıkarılır. Sonuç [T, D] boyutlu bir öznitelik serisidir ve LSTM/GRU'ya girdi olur.
+#
+# librosa yalnızca sinyal düzeyi öznitelik çıkarımı için kullanılır — ödev yönergesi buna açıkça izin verir; hiçbir yerde önceden eğitilmiş model yok.
 
 from __future__ import annotations
 
@@ -28,18 +21,15 @@ SAMPLE_RATE = 16_000
 
 
 def _fingerprint(payload: dict) -> str:
-    '''Ayarlardan kısa ve kararlı bir kimlik üretir.
-
-    Önbellek (cache) klasörleri bu kimlikle adlandırılır; böylece farklı
-    ayarlarla çıkarılmış öznitelikler asla birbirine karışmaz.
-    '''
+    # Ayarlardan kısa ve kararlı bir kimlik üretir.
+    #
+    # Önbellek (cache) klasörleri bu kimlikle adlandırılır; böylece farklı ayarlarla çıkarılmış öznitelikler asla birbirine karışmaz.
 
     text = json.dumps(payload, sort_keys=True, separators=(',', ':'))
     return hashlib.sha1(text.encode('utf-8')).hexdigest()[:12]
 
 
-def _load_audio(audio_path: str | Path, sample_rate: int) -> np.ndarray:
-    '''Bir ses dosyasını mono ve hedef örnekleme hızında yükler, doğrular.'''
+def _load_audio(audio_path: str | Path, sample_rate: int) -> np.ndarray:  # Bir ses dosyasını mono ve hedef örnekleme hızında yükler, doğrular.
 
     audio_path = Path(audio_path)
     if not audio_path.is_file():
@@ -60,11 +50,9 @@ def _load_audio(audio_path: str | Path, sample_rate: int) -> np.ndarray:
 
 @dataclass(frozen=True)
 class MelImageConfig:
-    '''CNN'e girecek 2 boyutlu log-mel görüntüsünün tüm ayarları.
-
-    frozen=True: değerler sonradan değiştirilemez; böylece aynı config
-    her zaman aynı özniteliği üretir (önbellek güvenliği için önemli).
-    '''
+    # CNN'e girecek 2 boyutlu log-mel görüntüsünün tüm ayarları.
+    #
+    # frozen=True: değerler sonradan değiştirilemez; böylece aynı config her zaman aynı özniteliği üretir (önbellek güvenliği için önemli).
 
     sample_rate: int = SAMPLE_RATE
     n_mels: int = 64          # frekans ekseni çözünürlüğü (mel bandı sayısı)
@@ -75,8 +63,7 @@ class MelImageConfig:
     fmax: float = 8_000.0     # konuşma enerjisinin çoğu bu bandın altında
     top_db: float = 80.0      # dB ölçeğinde kırpma aralığı
 
-    def validate(self) -> None:
-        '''Anlamsız ayarları en baştan reddet (sessiz hata yerine açık hata).'''
+    def validate(self) -> None:  # Anlamsız ayarları en baştan reddet (sessiz hata yerine açık hata).
 
         if min(self.sample_rate, self.n_mels, self.n_frames, self.n_fft, self.hop_length) <= 0:
             raise ValueError(f'Mel parametreleri pozitif olmalı: {self}.')
@@ -84,26 +71,21 @@ class MelImageConfig:
             raise ValueError(f'Geçersiz frekans/dB ayarı: {self}.')
 
     @property
-    def shape(self) -> tuple[int, int]:
-        '''Üretilecek görüntünün boyutu: (mel bandı, zaman karesi).'''
+    def shape(self) -> tuple[int, int]:  # Üretilecek görüntünün boyutu: (mel bandı, zaman karesi).
 
         return (self.n_mels, self.n_frames)
 
     @property
-    def fingerprint(self) -> str:
-        '''Bu ayarlara özel önbellek kimliği (ör. "mel_a1b2c3...").'''
+    def fingerprint(self) -> str:  # Bu ayarlara özel önbellek kimliği (ör. "mel_a1b2c3...").
 
         self.validate()
         return 'mel_' + _fingerprint(asdict(self))
 
 
 def fix_frames(mel_db: np.ndarray, n_frames: int) -> np.ndarray:
-    '''Mel matrisinin zaman eksenini tam olarak n_frames sütuna sabitler.
-
-    Kayıtlar farklı uzunlukta olduğundan CNN'e vermeden önce hepsini aynı
-    boyuta getirmek gerekir: uzun kayıt ortadan kırpılır, kısa kayıt en
-    düşük enerji değeriyle (sessizlik gibi) sağdan doldurulur.
-    '''
+    # Mel matrisinin zaman eksenini tam olarak n_frames sütuna sabitler.
+    #
+    # Kayıtlar farklı uzunlukta olduğundan CNN'e vermeden önce hepsini aynı boyuta getirmek gerekir: uzun kayıt ortadan kırpılır, kısa kayıt en düşük enerji değeriyle (sessizlik gibi) sağdan doldurulur.
 
     current = mel_db.shape[1]
     if current == 0:
@@ -130,11 +112,9 @@ def extract_mel_image(
     audio_path: str | Path,
     config: MelImageConfig,
 ) -> np.ndarray:
-    '''Bir kaydı [n_mels, n_frames] boyutlu float32 log-mel matrisine çevirir.
-
-    Adımlar: ses yükle -> mel spectrogram (güç) -> dB (log) ölçeğine çevir
-    -> zaman eksenini sabitle. CNN bu matrisi tek kanallı görüntü gibi işler.
-    '''
+    # Bir kaydı [n_mels, n_frames] boyutlu float32 log-mel matrisine çevirir.
+    #
+    # Adımlar: ses yükle -> mel spectrogram (güç) -> dB (log) ölçeğine çevir -> zaman eksenini sabitle. CNN bu matrisi tek kanallı görüntü gibi işler.
 
     config.validate()
     audio = _load_audio(audio_path, config.sample_rate)
@@ -163,14 +143,9 @@ def extract_mel_image(
 
 @dataclass(frozen=True)
 class IntervalConfig:
-    '''Aralık düzeni ve aralık-içi ayarlar (RNN öznitelik serisi için).
-
-    n_intervals ve interval_ms, ödevin hiperparametre olarak aranmasını
-    istediği iki değerdir. Aralık başlangıçları kayda eşit yayılır: kısa
-    kayıtta aralıklar örtüşür, uzun kayıtta aralarında boşluk kalır —
-    her iki durumda da kayıt başına tam n_intervals satır üretilir, yani
-    RNN her zaman sabit uzunlukta bir seri görür.
-    '''
+    # Aralık düzeni ve aralık-içi ayarlar (RNN öznitelik serisi için).
+    #
+    # n_intervals ve interval_ms, ödevin hiperparametre olarak aranmasını istediği iki değerdir. Aralık başlangıçları kayda eşit yayılır: kısa kayıtta aralıklar örtüşür, uzun kayıtta aralarında boşluk kalır — her iki durumda da kayıt başına tam n_intervals satır üretilir, yani RNN her zaman sabit uzunlukta bir seri görür.
 
     sample_rate: int = SAMPLE_RATE
     n_intervals: int = 24     # kayıt kaç aralığa bölünecek (hiperparametre)
@@ -197,20 +172,15 @@ class IntervalConfig:
             raise ValueError(f'Aralık parametreleri pozitif olmalı: {self}.')
 
     @property
-    def interval_samples(self) -> int:
-        '''Bir aralığın örnek (sample) cinsinden uzunluğu.'''
+    def interval_samples(self) -> int:  # Bir aralığın örnek (sample) cinsinden uzunluğu.
 
         return int(round(self.sample_rate * self.interval_ms / 1000.0))
 
     @property
     def feature_dim(self) -> int:
-        '''Aralık başına öznitelik sayısı — açık bayraklara göre hesaplanır.
-
-        Taban: 13 MFCC ort + 13 MFCC std + 13 delta-MFCC ort + 5 skaler
-        (enerji, enerji std, ZCR, centroid, rolloff) = 44.
-        Bayraklar: +3 pitch, +2 jitter/shimmer, +7 kontrast, +13 delta-delta,
-        +2 bant genişliği/düzlük.
-        '''
+        # Aralık başına öznitelik sayısı — açık bayraklara göre hesaplanır.
+        #
+        # Taban: 13 MFCC ort + 13 MFCC std + 13 delta-MFCC ort + 5 skaler (enerji, enerji std, ZCR, centroid, rolloff) = 44. Bayraklar: +3 pitch, +2 jitter/shimmer, +7 kontrast, +13 delta-delta, +2 bant genişliği/düzlük.
 
         boyut = 3 * self.n_mfcc + 5           # taban 44
         if self.use_pitch:
@@ -226,21 +196,18 @@ class IntervalConfig:
         return boyut
 
     @property
-    def shape(self) -> tuple[int, int]:
-        '''Üretilecek serinin boyutu: (aralık sayısı, öznitelik sayısı).'''
+    def shape(self) -> tuple[int, int]:  # Üretilecek serinin boyutu: (aralık sayısı, öznitelik sayısı).
 
         return (self.n_intervals, self.feature_dim)
 
     @property
-    def fingerprint(self) -> str:
-        '''Bu ayarlara özel önbellek kimliği (ör. "seq_9a8b7c...").'''
+    def fingerprint(self) -> str:  # Bu ayarlara özel önbellek kimliği (ör. "seq_9a8b7c...").
 
         self.validate()
         return 'seq_' + _fingerprint(asdict(self))
 
 
-def interval_starts(total_samples: int, config: IntervalConfig) -> np.ndarray:
-    '''n_intervals adet pencerenin başlangıç indekslerini eşit aralıkla yerleştirir.'''
+def interval_starts(total_samples: int, config: IntervalConfig) -> np.ndarray:  # n_intervals adet pencerenin başlangıç indekslerini eşit aralıkla yerleştirir.
 
     # Son pencerenin kayıt dışına taşmaması için kullanılabilir açıklık:
     span = max(total_samples - config.interval_samples, 0)
@@ -251,12 +218,9 @@ def interval_starts(total_samples: int, config: IntervalConfig) -> np.ndarray:
 
 
 def _interval_features(segment: np.ndarray, config: IntervalConfig) -> np.ndarray:
-    '''Tek bir aralığı sabit uzunlukta bir istatistik vektörüne özetler.
-
-    Aralık içinde kısa pencerelerle (32 ms) kare-düzeyi öznitelikler
-    hesaplanır, sonra bu karelerin ortalama/std'si alınır. Böylece aralık
-    ne kadar uzun olursa olsun çıktı hep aynı boyutta kalır.
-    '''
+    # Tek bir aralığı sabit uzunlukta bir istatistik vektörüne özetler.
+    #
+    # Aralık içinde kısa pencerelerle (32 ms) kare-düzeyi öznitelikler hesaplanır, sonra bu karelerin ortalama/std'si alınır. Böylece aralık ne kadar uzun olursa olsun çıktı hep aynı boyutta kalır.
 
     # Aralık FFT penceresinden bile kısaysa sıfırla doldur.
     if len(segment) < config.n_fft:
@@ -367,15 +331,11 @@ def extract_interval_series(
     config: IntervalConfig,
     audio: np.ndarray | None = None,
 ) -> np.ndarray:
-    '''Bir kaydı [n_intervals, feature_dim] boyutlu float32 seriye çevirir.
-
-    RNN bu seriyi satır satır (aralık aralık) okuyarak duygunun zaman
-    içindeki seyrini modeller.
-
-    ``audio`` verilirse dosyadan yükleme atlanır ve doğrudan bu dalga formu
-    kullanılır (ör. veri artırma için pitch-shift edilmiş bir kayıt). None
-    (varsayılan) ise davranış değişmez: kayıt ``audio_path``'ten yüklenir.
-    '''
+    # Bir kaydı [n_intervals, feature_dim] boyutlu float32 seriye çevirir.
+    #
+    # RNN bu seriyi satır satır (aralık aralık) okuyarak duygunun zaman içindeki seyrini modeller.
+    #
+    # ``audio`` verilirse dosyadan yükleme atlanır ve doğrudan bu dalga formu kullanılır (ör. veri artırma için pitch-shift edilmiş bir kayıt). None (varsayılan) ise davranış değişmez: kayıt ``audio_path``'ten yüklenir.
 
     config.validate()
     if audio is None:

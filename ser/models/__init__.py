@@ -1,23 +1,19 @@
-"""Modeller: klasik MFCC taban modeli, log-mel CNN, wav2vec2 transfer öğrenmesi.
-
-Üç model ailesi bilinçli olarak "basitten karmaşığa" bir merdiven oluşturur:
-  1. baseline  — sklearn (MFCC istatistikleri + SVM/logreg/RF): derin olmayan referans.
-  2. cnn       — log-mel spektrogram üzerinde kompakt 2B CNN: ana derin model.
-  3. wav2vec2  — önceden eğitilmiş öz-denetimli ses modelinin üstüne sınıflandırma
-                 başlığı: transfer öğrenme deneyi.
-"""
+# Modeller: klasik MFCC taban modeli, log-mel CNN, wav2vec2 transfer öğrenmesi.
+#
+# Üç model ailesi bilinçli olarak "basitten karmaşığa" bir merdiven oluşturur:
+# 1. baseline  — sklearn (MFCC istatistikleri + SVM/logreg/RF): derin olmayan referans.
+# 2. cnn       — log-mel spektrogram üzerinde kompakt 2B CNN: ana derin model.
+# 3. wav2vec2  — önceden eğitilmiş öz-denetimli ses modelinin üstüne sınıflandırma
+# başlığı: transfer öğrenme deneyi.
 
 from .cnn import MelCNN
 from .baseline import build_baseline
 
 
 def build_model(cfg, num_classes: int):
-    """Torch modelleri için fabrika fonksiyonu (sklearn taban modeli ayrı kurulur).
-
-    "Fabrika" deseni burada işe yarar: eğitim kodu hangi sınıfın kurulacağını
-    bilmek zorunda kalmaz; config'teki ``model.name`` dizgesi yeter. Yeni bir
-    model eklemek = buraya bir dal eklemek.
-    """
+    # Torch modelleri için fabrika fonksiyonu (sklearn taban modeli ayrı kurulur).
+    #
+    # "Fabrika" deseni burada işe yarar: eğitim kodu hangi sınıfın kurulacağını bilmek zorunda kalmaz; config'teki ``model.name`` dizgesi yeter. Yeni bir model eklemek = buraya bir dal eklemek.
     name = cfg.model.name.lower()
     if name == "cnn":
         return MelCNN(

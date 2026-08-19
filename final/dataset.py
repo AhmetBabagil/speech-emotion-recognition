@@ -1,10 +1,6 @@
-'''Öznitelik önbelleği, yalnız-eğitimle normalizasyon ve bellek-içi veri kümeleri.
-
-İki yöntem de kayıt başına sabit boyutlu bir float32 dizi ürettiği için tek
-bir önbellek ve tek bir yükleyici, hem CNN görüntülerini hem RNN serilerini
-karşılar. Öznitelik çıkarımı pahalı olduğundan her sonuç diske yazılır ve
-sonraki denemelerde saniyeler içinde geri okunur.
-'''
+# Öznitelik önbelleği, yalnız-eğitimle normalizasyon ve bellek-içi veri kümeleri.
+#
+# İki yöntem de kayıt başına sabit boyutlu bir float32 dizi ürettiği için tek bir önbellek ve tek bir yükleyici, hem CNN görüntülerini hem RNN serilerini karşılar. Öznitelik çıkarımı pahalı olduğundan her sonuç diske yazılır ve sonraki denemelerde saniyeler içinde geri okunur.
 
 from __future__ import annotations
 
@@ -26,14 +22,12 @@ def feature_cache_path(
     cache_dir: str | Path,
     fingerprint: str,
 ) -> Path:
-    '''Kaynak dosyaya ve öznitelik ayarlarına özel, kararlı önbellek yolu üretir.
-
-    Yol iki şeye bağlıdır:
-    1. fingerprint: öznitelik ayarlarının kimliği (klasör adı) — farklı
-       ayarların çıktıları karışamaz.
-    2. Kaynak dosyanın yolu + boyutu + değişiklik zamanı — ses dosyası
-       değişirse eski önbellek otomatik geçersizleşir.
-    '''
+    # Kaynak dosyaya ve öznitelik ayarlarına özel, kararlı önbellek yolu üretir.
+    #
+    # Yol iki şeye bağlıdır: 1. fingerprint: öznitelik ayarlarının kimliği (klasör adı) — farklı
+    # ayarların çıktıları karışamaz.
+    # 2. Kaynak dosyanın yolu + boyutu + değişiklik zamanı — ses dosyası
+    # değişirse eski önbellek otomatik geçersizleşir.
 
     audio_path = Path(audio_path)
     stat = audio_path.stat()
@@ -50,8 +44,7 @@ def load_or_extract(
     fingerprint: str,
     extract: Callable[[str | Path], np.ndarray],
     expected_shape: tuple[int, ...],
-) -> np.ndarray:
-    '''Geçerli bir önbellek kaydı varsa onu döndürür; yoksa hesaplayıp saklar.'''
+) -> np.ndarray:  # Geçerli bir önbellek kaydı varsa onu döndürür; yoksa hesaplayıp saklar.
 
     cache_path = feature_cache_path(audio_path, cache_dir, fingerprint)
     if cache_path.is_file():
@@ -73,8 +66,7 @@ def load_or_extract(
     return array
 
 
-def _progress(iterator: Iterable, total: int, description: str, enabled: bool):
-    '''tqdm kuruluysa ilerleme çubuğu göster; değilse sessizce devam et.'''
+def _progress(iterator: Iterable, total: int, description: str, enabled: bool):  # tqdm kuruluysa ilerleme çubuğu göster; değilse sessizce devam et.
 
     if not enabled:
         return iterator
@@ -97,11 +89,9 @@ def load_feature_tensor(
     show_progress: bool = True,
     description: str = 'Öznitelikler',
 ) -> tuple[np.ndarray, np.ndarray]:
-    '''Bir katmanın (fold) tüm kayıtlarını tek bir [N, ...] tensöre toplar.
-
-    workers > 1 verilirse dosyalar iş parçacıklarıyla paralel işlenir
-    (öznitelik çıkarımı G/Ç + librosa ağırlıklı olduğu için thread yeterli).
-    '''
+    # Bir katmanın (fold) tüm kayıtlarını tek bir [N, ...] tensöre toplar.
+    #
+    # workers > 1 verilirse dosyalar iş parçacıklarıyla paralel işlenir (öznitelik çıkarımı G/Ç + librosa ağırlıklı olduğu için thread yeterli).
 
     records = records.reset_index(drop=True)
     paths = records['path'].astype(str).tolist()
@@ -128,17 +118,11 @@ def load_feature_tensor(
 
 @dataclass(frozen=True)
 class Standardizer:
-    '''YALNIZCA eğitim katmanından öğrenilen z-skor parametreleri.
-
-    Neden önemli: ortalama/std'yi tüm veriden öğrenmek, test bilgisinin
-    eğitime sızması demektir (data leakage). Burada fit() sadece eğitim
-    verisiyle çağrılır; geçerleme ve test aynı parametrelerle dönüştürülür.
-
-    Eksen mantığı: [N, mels, T] mel görüntülerinde istatistik mel bandı
-    başına (feature_axis=1), [N, T, D] serilerde öznitelik boyutu başına
-    (feature_axis=2) tutulur; kalan eksenler (örnek + zaman) üzerinden
-    ortalama alınır.
-    '''
+    # YALNIZCA eğitim katmanından öğrenilen z-skor parametreleri.
+    #
+    # Neden önemli: ortalama/std'yi tüm veriden öğrenmek, test bilgisinin eğitime sızması demektir (data leakage). Burada fit() sadece eğitim verisiyle çağrılır; geçerleme ve test aynı parametrelerle dönüştürülür.
+    #
+    # Eksen mantığı: [N, mels, T] mel görüntülerinde istatistik mel bandı başına (feature_axis=1), [N, T, D] serilerde öznitelik boyutu başına (feature_axis=2) tutulur; kalan eksenler (örnek + zaman) üzerinden ortalama alınır.
 
     mean: np.ndarray
     scale: np.ndarray
@@ -158,8 +142,7 @@ class Standardizer:
         scale = np.where(scale < epsilon, 1.0, scale)
         return cls(mean=mean, scale=scale, feature_axis=feature_axis)
 
-    def transform(self, features: np.ndarray) -> np.ndarray:
-        '''(x - ortalama) / std dönüşümünü doğru eksende uygular.'''
+    def transform(self, features: np.ndarray) -> np.ndarray:  # (x - ortalama) / std dönüşümünü doğru eksende uygular.
 
         features = np.asarray(features, dtype=np.float32)
         # mean/scale vektörlerini yayın (broadcast) için doğru şekle getir.
@@ -171,12 +154,9 @@ class Standardizer:
 
 
 class ArrayDataset(Dataset):
-    '''Hiperparametre denemeleri boyunca yeniden kullanılan bellek-içi tensörler.
-
-    Tüm öznitelikler zaten RAM'e sığdığı için diskten tekrar tekrar okumak
-    yerine bir kez tensöre çevirip DataLoader'a veriyoruz — denemeler arası
-    en hızlı yol bu.
-    '''
+    # Hiperparametre denemeleri boyunca yeniden kullanılan bellek-içi tensörler.
+    #
+    # Tüm öznitelikler zaten RAM'e sığdığı için diskten tekrar tekrar okumak yerine bir kez tensöre çevirip DataLoader'a veriyoruz — denemeler arası en hızlı yol bu.
 
     def __init__(self, features: np.ndarray, labels: np.ndarray) -> None:
         features = np.ascontiguousarray(features, dtype=np.float32)

@@ -1,17 +1,11 @@
-'''Süreç-paralel öznitelik ön-çıkarma — CPU'yu GERÇEKTEN dolduran sürüm.
-
-Neden var: Python'da iş parçacıkları (thread) GIL kilidi yüzünden aynı anda
-tek çekirdek çalıştırır; 24 thread ile bile CPU %7'de kalıyordu. SÜREÇLER
-(process) ise her biri kendi Python'una sahip olduğundan kilidi paylaşmaz:
-16 süreç = 16 çekirdek gerçekten çalışır.
-
-Bu araç, rastgele aramanın kullanacağı TÜM aralık düzenlerinin özniteliklerini
-önbelleğe yazar. Çekirdek koda dokunmaz; yalnızca data/cache/final'i doldurur.
-Sonrasında otomatik_arama.py çıkarma yapmadan, saf GPU hızında koşar.
-
-Örnek:
-    python final/hizli_cikarma.py --islemler 14
-'''
+# Süreç-paralel öznitelik ön-çıkarma — CPU'yu GERÇEKTEN dolduran sürüm.
+#
+# Neden var: Python'da iş parçacıkları (thread) GIL kilidi yüzünden aynı anda tek çekirdek çalıştırır; 24 thread ile bile CPU %7'de kalıyordu. SÜREÇLER (process) ise her biri kendi Python'una sahip olduğundan kilidi paylaşmaz: 16 süreç = 16 çekirdek gerçekten çalışır.
+#
+# Bu araç, rastgele aramanın kullanacağı TÜM aralık düzenlerinin özniteliklerini önbelleğe yazar. Çekirdek koda dokunmaz; yalnızca data/cache/final'i doldurur. Sonrasında otomatik_arama.py çıkarma yapmadan, saf GPU hızında koşar.
+#
+# Örnek:
+# python final/hizli_cikarma.py --islemler 14
 
 from __future__ import annotations
 
@@ -33,11 +27,9 @@ _CACHE = None   # her işçi süreçte initializer doldurur
 
 
 def _isci_kur(cache_root: str) -> None:
-    '''İşçi süreç başlarken bir kez: BLAS'ı tek iş parçacığına sabitle.
-
-    Her süreç kendi içinde numpy/BLAS'a çok iş parçacığı açarsa 16 süreç x N
-    thread birbirini boğar; süreç başına 1 thread en hızlısıdır.
-    '''
+    # İşçi süreç başlarken bir kez: BLAS'ı tek iş parçacığına sabitle.
+    #
+    # Her süreç kendi içinde numpy/BLAS'a çok iş parçacığı açarsa 16 süreç x N thread birbirini boğar; süreç başına 1 thread en hızlısıdır.
 
     global _CACHE
     for anahtar in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS',
@@ -46,8 +38,7 @@ def _isci_kur(cache_root: str) -> None:
     _CACHE = cache_root
 
 
-def _cikar(gorev) -> int:
-    '''Tek (dosya, düzen) çifti için özniteliği hesaplayıp önbelleğe yazar.'''
+def _cikar(gorev) -> int:  # Tek (dosya, düzen) çifti için özniteliği hesaplayıp önbelleğe yazar.
 
     yol, cfg_sozluk = gorev
     from final.dataset import load_or_extract
