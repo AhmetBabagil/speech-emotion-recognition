@@ -2,19 +2,19 @@
 #
 # Testler corpus dosyalarına bağımlı değildir: geçici dizinde sentetik bir ton (sinüs) üretilir ve her şey onun üzerinde doğrulanır. Böylece testler her makinede, veri indirilmeden çalışır.
 
-from __future__ import annotations
+from __future__ import annotations  # tip ipuçlarını esnek yazmak için
 
-from pathlib import Path
-import sys
+from pathlib import Path  # dosya yolları
+import sys  # import yolu
 
-import numpy as np
-import pytest
-import soundfile as sf
+import numpy as np  # diziler + rastgele sinyal
+import pytest  # test çatısı
+import soundfile as sf  # geçici WAV yazma
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # proje kökünü import yoluna ekle
 
-from final.dataset import Standardizer, load_or_extract  # noqa: E402
-from final.features import (  # noqa: E402
+from final.dataset import Standardizer, load_or_extract  # noqa: E402  # normalizasyon + önbellek
+from final.features import (  # noqa: E402  # öznitelik çıkarıcılar
     IntervalConfig,
     MelImageConfig,
     extract_interval_series,
@@ -26,83 +26,83 @@ from final.features import (  # noqa: E402
 @pytest.fixture()
 def wav_path(tmp_path: Path) -> Path:  # 1,5 saniyelik sentetik 220 Hz ton — testlerin sabit girdisi.
 
-    sr = 16_000
-    t = np.linspace(0, 1.5, int(sr * 1.5), endpoint=False)
-    audio = (0.3 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
-    path = tmp_path / 'tone.wav'
-    sf.write(path, audio, sr)
-    return path
+    sr = 16_000  # örnekleme hızı
+    t = np.linspace(0, 1.5, int(sr * 1.5), endpoint=False)  # zaman ekseni (1,5 sn)
+    audio = (0.3 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)  # 220 Hz sinüs ton
+    path = tmp_path / 'tone.wav'  # geçici dosya yolu
+    sf.write(path, audio, sr)  # WAV olarak yaz
+    return path  # ton dosyasının yolu
 
 
 def test_mel_image_shape_and_determinism(wav_path: Path) -> None:  # Mel görüntüsü: doğru boyut, sonlu değerler ve iki çağrıda aynı sonuç.
 
-    config = MelImageConfig(n_mels=32, n_frames=48)
-    first = extract_mel_image(wav_path, config)
-    second = extract_mel_image(wav_path, config)
-    assert first.shape == (32, 48)
-    assert first.dtype == np.float32
-    assert np.isfinite(first).all()
+    config = MelImageConfig(n_mels=32, n_frames=48)  # küçük mel ayarı
+    first = extract_mel_image(wav_path, config)  # birinci çıkarım
+    second = extract_mel_image(wav_path, config)  # ikinci çıkarım
+    assert first.shape == (32, 48)  # doğru boyut
+    assert first.dtype == np.float32  # doğru tip
+    assert np.isfinite(first).all()  # bozuk değer yok
     # Determinizm: aynı dosya + aynı ayar = bit-bit aynı çıktı.
-    np.testing.assert_array_equal(first, second)
+    np.testing.assert_array_equal(first, second)  # iki çağrı özdeş olmalı
 
 
 def test_interval_starts_cover_short_and_long_audio() -> None:  # Aralık yerleşimi hem kısa hem uzun kayıtta doğru çalışmalı.
 
-    config = IntervalConfig(n_intervals=8, interval_ms=300)
-    window = config.interval_samples
+    config = IntervalConfig(n_intervals=8, interval_ms=300)  # 8 aralık ayarı
+    window = config.interval_samples  # bir aralığın örnek uzunluğu
     short = interval_starts(window // 2, config)   # tek pencereden bile kısa kayıt
     long = interval_starts(window * 20, config)    # pencerenin 20 katı kayıt
     # Her iki durumda da tam 8 başlangıç üretilmeli (sabit uzunlukta seri).
-    assert len(short) == len(long) == 8
+    assert len(short) == len(long) == 8  # ikisi de 8 başlangıç
     # Kısa kayıtta tüm pencereler 0'dan başlar (hepsi üst üste biner).
-    assert short.min() >= 0 and short.max() == 0
+    assert short.min() >= 0 and short.max() == 0  # hepsi 0'da
     # Uzun kayıtta ilk pencere başta, son pencere tam sonda biter.
-    assert long.min() == 0 and long.max() == window * 20 - window
+    assert long.min() == 0 and long.max() == window * 20 - window  # baştan sona yayılmış
 
 
 def test_interval_series_shape(wav_path: Path) -> None:  # Aralık serisi: doğru boyut + durağan sinyalde satırlar birbirine yakın.
 
-    config = IntervalConfig(n_intervals=6, interval_ms=250)
-    series = extract_interval_series(wav_path, config)
-    assert series.shape == config.shape == (6, config.feature_dim)
-    assert np.isfinite(series).all()
+    config = IntervalConfig(n_intervals=6, interval_ms=250)  # 6 aralık ayarı
+    series = extract_interval_series(wav_path, config)  # seriyi çıkar
+    assert series.shape == config.shape == (6, config.feature_dim)  # doğru boyut
+    assert np.isfinite(series).all()  # bozuk değer yok
     # Sabit bir tonun ortadaki aralıkları neredeyse özdeş olmalı
     # (kenar aralıklar dolgu nedeniyle farklılaşabilir).
-    assert np.std(series[1:-1], axis=0).max() < 1.0
+    assert np.std(series[1:-1], axis=0).max() < 1.0  # orta aralıklar birbirine yakın
 
 
 def test_cache_roundtrip(wav_path: Path, tmp_path: Path) -> None:  # Önbellek: ilk çağrı hesaplar, ikinci çağrı diskten okur (tekrar hesaplamaz).
 
-    config = IntervalConfig(n_intervals=4, interval_ms=200)
-    cache_dir = tmp_path / 'cache'
-    calls = {'n': 0}
+    config = IntervalConfig(n_intervals=4, interval_ms=200)  # 4 aralık ayarı
+    cache_dir = tmp_path / 'cache'  # geçici önbellek klasörü
+    calls = {'n': 0}  # gerçek hesaplama sayacı
 
-    def counting_extract(path):
+    def counting_extract(path):  # kaç kez hesaplandığını sayan sarmalayıcı
         calls['n'] += 1   # kaç kez gerçekten hesaplandığını say
-        return extract_interval_series(path, config)
+        return extract_interval_series(path, config)  # gerçek çıkarım
 
-    first = load_or_extract(wav_path, cache_dir, config.fingerprint,
+    first = load_or_extract(wav_path, cache_dir, config.fingerprint,  # ilk çağrı (hesaplar + yazar)
                             counting_extract, config.shape)
-    second = load_or_extract(wav_path, cache_dir, config.fingerprint,
+    second = load_or_extract(wav_path, cache_dir, config.fingerprint,  # ikinci çağrı (okur)
                              counting_extract, config.shape)
     assert calls['n'] == 1   # ikinci çağrı önbellekten gelmiş olmalı
-    np.testing.assert_array_equal(first, second)
+    np.testing.assert_array_equal(first, second)  # iki sonuç özdeş olmalı
 
 
 def test_standardizer_axes() -> None:  # Z-skor doğru eksende uygulanmalı: dönüşüm sonrası ortalama ~0, std ~1.
 
-    rng = np.random.default_rng(0)
+    rng = np.random.default_rng(0)  # rastgele üreteç
     # RNN durumu: [N, T, D] -> öznitelik boyutu (axis=2) başına istatistik.
-    series = rng.normal(3.0, 2.0, size=(50, 12, 7)).astype(np.float32)
-    scaler = Standardizer.fit(series, feature_axis=2)
-    transformed = scaler.transform(series)
-    means = transformed.mean(axis=(0, 1))
-    stds = transformed.std(axis=(0, 1))
-    assert np.abs(means).max() < 1e-4
-    assert np.abs(stds - 1.0).max() < 1e-3
+    series = rng.normal(3.0, 2.0, size=(50, 12, 7)).astype(np.float32)  # ort 3, std 2 sentetik seri
+    scaler = Standardizer.fit(series, feature_axis=2)  # öznitelik ekseninde öğren
+    transformed = scaler.transform(series)  # normalize et
+    means = transformed.mean(axis=(0, 1))  # öznitelik başına ortalama
+    stds = transformed.std(axis=(0, 1))  # öznitelik başına std
+    assert np.abs(means).max() < 1e-4  # ortalama ~0 olmalı
+    assert np.abs(stds - 1.0).max() < 1e-3  # std ~1 olmalı
 
     # CNN durumu: [N, mels, T] -> mel bandı (axis=1) başına istatistik.
-    images = rng.normal(0.0, 5.0, size=(50, 16, 20)).astype(np.float32)
-    scaler = Standardizer.fit(images, feature_axis=1)
-    transformed = scaler.transform(images)
-    assert np.abs(transformed.mean(axis=(0, 2))).max() < 1e-4
+    images = rng.normal(0.0, 5.0, size=(50, 16, 20)).astype(np.float32)  # sentetik mel yığını
+    scaler = Standardizer.fit(images, feature_axis=1)  # mel ekseninde öğren
+    transformed = scaler.transform(images)  # normalize et
+    assert np.abs(transformed.mean(axis=(0, 2))).max() < 1e-4  # mel başına ortalama ~0
