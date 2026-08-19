@@ -1,7 +1,7 @@
 # Final raporu için kaynakça notları
 
 İnternet taramasıyla derlenen, iki yöntemimizle doğrudan ilgili çalışmalar ve
-rapora aktarılacak beklenti aralıkları. (Derleme tarihi: 2026-08-17)
+rapora aktarılacak beklenti aralıkları.
 
 ## Kaynaklar
 
@@ -78,8 +78,10 @@ rapora aktarılacak beklenti aralıkları. (Derleme tarihi: 2026-08-17)
 - Taban çizgileri: şans ~%17; insan (yalnız ses) %40,9 [1].
 - Yöntem 1 (mel + CNN): %55-65 doğruluk / macro-F1 0,50-0,62 sağlam sonuç;
   %68 civarı yayınlanmış tavana yakın (toplulukla alındı) [4].
-- Yöntem 2 (aralık öznitelikleri + LSTM/GRU): tipik olarak CNN'in 3-8 puan
-  altı — %45-58 beklenir [5, 6, 8].
+- Yöntem 2 (aralık öznitelikleri + LSTM/GRU): literatür genelde CNN'in bir miktar
+  gerisini bekletir [5, 8], ancak aralık çözünürlüğü aramayla veriye uydurulup
+  öznitelik seti (jitter + spektral kontrast) seçildiğinde BLSTM/GRU rekabetçi
+  hatta üstün olabilir [6, 7]. Bu projede Yöntem 2 öne geçti.
 - Bağlam: önceden eğitilmiş dev modeller bile konuşmacı-bağımsız CREMA-D'de
   62-77 UA [11]; sıfırdan %55 üstü gerçekten iyi. %85+ iddiaları rastgele
   bölme/sızıntı ürünü [12].

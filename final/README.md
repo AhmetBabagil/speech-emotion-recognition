@@ -12,6 +12,11 @@ sınıf-ağırlıklı cross-entropy, geçerleme macro-F1 üzerinde erken durdurm
 geçerleme temelli hiperparametre araması + yerel iyileştirme turu. Test
 kümesine yalnızca seçilen modeller dokunur.
 
+**Nihai sonuç:** her iki yöntemin son hâli 5'er modelli topluluktur (softmax
+ortalaması). Yöntem 1 (CNN) test doğruluğu %62,3; Yöntem 2 (BiGRU,
+jitter+kontrast öznitelikleri) %68,6 — sıfırdan yayınlanmış en iyi bantla
+(~%68 [kaynaklar.md, 4]) aynı seviye. Öznitelik seçimi ablasyonla yapıldı.
+
 ## Çalıştırma sırası
 
 ```bash
@@ -20,6 +25,14 @@ python final/run_experiment.py --grid-mode report --feature-workers 8
 
 # 2. Geliştirme aşaması: SpecAugment / dikkat havuzlama / gürültü varyantları
 python final/improve.py
+
+# 3. Öznitelik ablasyonu: hangi grup ne kadar katıyor + nihai set (jitter+kontrast)
+python final/ablasyon.py
+python final/ablasyon_birak.py
+
+# 4. Nihai topluluk modelleri (5'er model, softmax ortalaması) — resmi sonuçlar
+python final/cnn_topluluk.py    # Yöntem 1 -> %62,3
+python final/rnn_topluluk.py    # Yöntem 2 -> %68,6
 
 # Hızlı sağlamlık kontrolü (küçük veri, dakikalar içinde):
 python final/run_experiment.py --grid-mode quick --limit-per-split 60
@@ -47,6 +60,10 @@ Geçerleme/test/demo kodlarının çalıştırılmış hali: `SONUCLAR_VE_DEMO.i
 | `pipeline.py` | Bölme → öznitelik → arama → iyileştirme → test akışı |
 | `augment.py` | SpecAugment maskeleme ve öznitelik gürültüsü (yalnız eğitim yığınlarına) |
 | `improve.py` | Geliştirme aşaması koşucusu |
+| `ablasyon.py`, `ablasyon_birak.py` | Öznitelik ablasyonu (kümülatif + bırak-birini); nihai set seçimi |
+| `kaydet_resmi.py` | Nihai öznitelik setiyle tek modeli 5 koşu eğitip kaydeder |
+| `cnn_topluluk.py`, `rnn_topluluk.py` | Nihai 5-model topluluklar (softmax ortalaması) |
+| `cnn_gelistir.py`, `ses_artirma_dene.py` | Geliştirme denemeleri (mixup/label-smoothing; ses-uzayı artırma) |
 | `demo.py` | Demo: iyi/kötü örnek dizininden rastgele veya adıyla girdi → iki yöntemin sonuçları |
 | `demo_ornekleri/` | Test kümesinden seçilmiş 6 iyi + 4 kötü örnek (demo girdileri) |
 | `SONUCLAR_VE_DEMO.ipynb` | Geçerleme + test (yeniden üretim kanıtıyla) + demo, çalıştırılmış çıktılarıyla |
